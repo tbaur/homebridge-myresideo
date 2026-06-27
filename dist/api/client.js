@@ -1,0 +1,155 @@
+"use strict";
+/**
+ * Copyright (c) 2026 tbaur
+ *
+ * Licensed under the Apache License, Version 2.0
+ * See LICENSE file for full license text
+ *
+ * @fileoverview HTTP client for the Resideo / Honeywell Home API.
+ *
+ * Every API call requires BOTH an OAuth2 bearer token (Authorization header)
+ * and the developer `apikey` query parameter. This client injects both,
+ * enforces a timeout, retries transient failures with backoff, and performs a
+ * single token-refresh-and-retry on 401.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ResideoApiClient = void 0;
+const node_buffer_1 = require("node:buffer");
+const node_https_1 = require("node:https");
+const errors_1 = require("../errors");
+const settings_1 = require("../settings");
+class ResideoApiClient {
+    tokenManager;
+    apikey;
+    timeoutMs;
+    maxRetryAttempts;
+    logger;
+    transport;
+    constructor(options) {
+        this.tokenManager = options.tokenManager;
+        this.apikey = options.apikey;
+        this.timeoutMs = options.timeoutMs ?? settings_1.DEFAULT_REQUEST_TIMEOUT_MS;
+        this.maxRetryAttempts = options.maxRetryAttempts ?? 3;
+        this.logger = options.logger;
+        this.transport = options.transport ?? defaultTransport;
+    }
+    /** GET all locations (with their embedded devices) for the authenticated user. */
+    async getLocations() {
+        return this.get(settings_1.LOCATIONS_URL, {});
+    }
+    /** GET a single water leak detector's current status. */
+    async getWaterLeakDetector(deviceID, locationId) {
+        const url = `${settings_1.DEVICES_URL}/${settings_1.WATER_LEAK_DETECTOR_TYPE}/${encodeURIComponent(deviceID)}`;
+        return this.get(url, { locationId: String(locationId) });
+    }
+    /**
+     * Perform an authenticated GET. Adds `apikey` plus any extra query params,
+     * retries transient failures, and refreshes the token once on a 401.
+     */
+    async get(baseUrl, params) {
+        const url = this.buildUrl(baseUrl, params);
+        const raw = await this.requestWithRetry(url);
+        return this.parseJson(raw, url);
+    }
+    buildUrl(baseUrl, params) {
+        const url = new URL(baseUrl);
+        url.searchParams.set('apikey', this.apikey);
+        for (const [key, value] of Object.entries(params)) {
+            url.searchParams.set(key, value);
+        }
+        return url.toString();
+    }
+    async requestWithRetry(url) {
+        let lastError;
+        let refreshedOnAuth = false;
+        for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt++) {
+            try {
+                const accessToken = await this.tokenManager.getAccessToken();
+                const raw = await this.transport(url, accessToken, this.timeoutMs);
+                if (raw.status >= 200 && raw.status < 300) {
+                    return raw;
+                }
+                const error = (0, errors_1.createApiError)(raw.status, `Request to ${redact(url)} failed (${raw.status})`);
+                // One token refresh-and-retry on auth failure.
+                if (error instanceof errors_1.AuthenticationError && !refreshedOnAuth) {
+                    refreshedOnAuth = true;
+                    this.logger?.debug?.('Received 401; forcing token refresh and retrying');
+                    await this.tokenManager.forceRefresh();
+                    continue;
+                }
+                if (!error.isRetryable) {
+                    throw error;
+                }
+                lastError = error;
+            }
+            catch (err) {
+                if (err instanceof errors_1.AuthenticationError) {
+                    throw err;
+                }
+                const isRetryable = err instanceof errors_1.NetworkError || err instanceof errors_1.TimeoutError;
+                if (!isRetryable) {
+                    throw err;
+                }
+                lastError = err;
+            }
+            if (attempt < this.maxRetryAttempts) {
+                await delay(backoffMs(attempt));
+            }
+        }
+        throw lastError instanceof Error ? lastError : new errors_1.NetworkError('Request failed after retries');
+    }
+    parseJson(raw, url) {
+        try {
+            return JSON.parse(raw.body);
+        }
+        catch (err) {
+            throw new errors_1.ApiParseError(`Failed to parse response from ${redact(url)}`, { cause: err });
+        }
+    }
+}
+exports.ResideoApiClient = ResideoApiClient;
+/** Exponential backoff with a small base; attempt is 1-indexed. */
+function backoffMs(attempt) {
+    return Math.min(1000 * 2 ** (attempt - 1), 8000);
+}
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+/** Strip the apikey from a URL before logging. */
+function redact(url) {
+    try {
+        const u = new URL(url);
+        if (u.searchParams.has('apikey')) {
+            u.searchParams.set('apikey', '***');
+        }
+        return u.toString();
+    }
+    catch {
+        return url;
+    }
+}
+/** Default transport using Node's native https with a timeout. */
+function defaultTransport(url, accessToken, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        const target = new URL(url);
+        const req = (0, node_https_1.request)(target, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Accept': 'application/json',
+            },
+            timeout: timeoutMs,
+        }, (res) => {
+            const chunks = [];
+            res.on('data', chunk => chunks.push(node_buffer_1.Buffer.isBuffer(chunk) ? chunk : node_buffer_1.Buffer.from(chunk)));
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, body: node_buffer_1.Buffer.concat(chunks).toString('utf8') }));
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            reject(new errors_1.TimeoutError(`Request timed out after ${timeoutMs}ms`));
+        });
+        req.on('error', err => reject(new errors_1.NetworkError(`Request failed: ${err.message}`, { cause: err })));
+        req.end();
+    });
+}
+//# sourceMappingURL=client.js.map

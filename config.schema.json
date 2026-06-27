@@ -1,0 +1,102 @@
+{
+  "pluginAlias": "MyResideo",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Homebridge plugin for Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors. Link your account in the plugin settings to obtain credentials.",
+  "footerDisplay": "For help, see the [README](https://github.com/tbaur/homebridge-myresideo#readme).",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "MyResideo",
+        "required": true
+      },
+      "credentials": {
+        "type": "object",
+        "properties": {
+          "consumerKey": {
+            "title": "Consumer Key (API Key)",
+            "type": "string",
+            "required": true,
+            "description": "The API Key from your Resideo developer application."
+          },
+          "consumerSecret": {
+            "title": "Consumer Secret (API Secret)",
+            "type": "string",
+            "required": true,
+            "description": "The API Secret from your Resideo developer application."
+          },
+          "accessToken": {
+            "title": "Access Token",
+            "type": "string",
+            "description": "OAuth2 access token (populated when you link your account)."
+          },
+          "refreshToken": {
+            "title": "Refresh Token",
+            "type": "string",
+            "required": true,
+            "description": "OAuth2 refresh token (populated when you link your account)."
+          }
+        }
+      },
+      "options": {
+        "type": "object",
+        "properties": {
+          "refreshRate": {
+            "title": "Refresh Rate (seconds)",
+            "type": "integer",
+            "default": 120,
+            "minimum": 30,
+            "description": "How often to poll Resideo for device status. Minimum 30 seconds."
+          },
+          "freezeThresholdCelsius": {
+            "title": "Default Freeze Threshold (°C)",
+            "type": "number",
+            "default": 4,
+            "description": "Temperature at or below which the optional freeze sensor trips, unless overridden per-device."
+          },
+          "devices": {
+            "type": "array",
+            "title": "Per-Device Options",
+            "items": {
+              "type": "object",
+              "properties": {
+                "deviceID": {
+                  "title": "Device ID",
+                  "type": "string",
+                  "required": true
+                },
+                "name": {
+                  "title": "Display Name Override",
+                  "type": "string"
+                },
+                "hideTemperatureSensor": {
+                  "title": "Hide Temperature Sensor",
+                  "type": "boolean",
+                  "default": false
+                },
+                "hideHumiditySensor": {
+                  "title": "Hide Humidity Sensor",
+                  "type": "boolean",
+                  "default": false
+                },
+                "enableFreezeSensor": {
+                  "title": "Expose Freeze Sensor",
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Adds a contact sensor that trips when temperature is at or below the freeze threshold."
+                },
+                "freezeThresholdCelsius": {
+                  "title": "Freeze Threshold Override (°C)",
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
