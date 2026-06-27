@@ -3,9 +3,8 @@
 Evaluation of the API as published at <https://developer.honeywellhome.com>,
 scoped to what this plugin needs (OAuth2 + Water Leak Detector).
 
-> **Critical:** The base host is **`https://api.honeywellhome.com`**. The legacy
-> `api.honeywell.com` host is deprecated and its certificate retired — using it
-> is what broke older integrations.
+> **Important:** The base host is **`https://api.honeywellhome.com`**. The older
+> `api.honeywell.com` host is deprecated and must not be used.
 
 ## Authentication — OAuth2 Authorization Code flow
 

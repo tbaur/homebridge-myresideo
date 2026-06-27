@@ -19,9 +19,8 @@ export const UUID_PREFIX = 'myresideo-'
 /**
  * Base host for the Resideo / Honeywell Home API.
  *
- * The legacy `api.honeywell.com` host has been deprecated by Resideo and its
- * certificate retired, which is what broke the original plugin. All requests
- * must target `api.honeywellhome.com`.
+ * All requests must target `api.honeywellhome.com`; the older `api.honeywell.com`
+ * host is deprecated and must not be used.
  *
  * @see https://developer.honeywellhome.com
  */

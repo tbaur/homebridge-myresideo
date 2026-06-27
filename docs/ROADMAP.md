@@ -2,9 +2,8 @@
 
 ## Done (0.1.0 scaffold)
 
-- Project scaffolding aligned to the `homebridge-myleviton` standard
-  (strict TypeScript, ESLint flat config, Jest + coverage, PR CI matrix,
-  release-please + OIDC publishing, Apache-2.0 + NOTICE).
+- Project foundation: strict TypeScript, ESLint flat config, Jest + coverage,
+  PR CI matrix, release-please + OIDC publishing, Apache-2.0 license.
 - Honeywell Home API evaluation and typed contract (`docs/API.md`).
 - OAuth2 `TokenManager` with proactive/single-flight refresh and rotation
   persistence (unit tested).
@@ -16,7 +15,7 @@
 ## Next
 
 - [ ] **Account-linking UI** — a `homebridge-ui` custom server implementing the
-      OAuth2 Authorization Code flow (no `curl` shell-out; use the API layer).
+      OAuth2 Authorization Code flow on top of the existing API layer.
 - [ ] **Integration tests** — `nock`-backed tests for `discoverDevices` and the
       poll loop; HAP-mocked tests for the accessory.
 - [ ] **Live verification** — validate against real hardware and confirm the

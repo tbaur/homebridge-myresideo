@@ -16,8 +16,9 @@
 
 ## How the plugin manages tokens
 
-The `TokenManager` (`src/api/auth.ts`) is designed to avoid the failure mode
-that plagued the legacy plugin:
+Resideo issues short-lived access tokens (~30 minutes) alongside a rotating
+refresh token. The `TokenManager` (`src/api/auth.ts`) keeps authentication
+robust without manual intervention:
 
 - **Proactive refresh** — refreshes one minute before `expires_in` elapses, so
   an in-flight poll never races an expiry.
