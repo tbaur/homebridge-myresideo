@@ -11,7 +11,7 @@
         "title": "Name",
         "type": "string",
         "default": "MyResideo",
-        "required": true
+        "description": "Plugin instance name shown in the Homebridge log."
       },
       "credentials": {
         "type": "object",

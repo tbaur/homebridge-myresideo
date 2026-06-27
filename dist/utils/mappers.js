@@ -15,7 +15,8 @@ exports.resolveFreezeThreshold = resolveFreezeThreshold;
 exports.isFreezing = isFreezing;
 exports.clampBatteryLevel = clampBatteryLevel;
 exports.isWaterLeakDetector = isWaterLeakDetector;
-const settings_1 = require("./settings");
+exports.isDeviceActive = isDeviceActive;
+const settings_1 = require("../settings");
 /** True when liquid water is currently detected. */
 function isLeakDetected(device) {
     return device.waterPresent === true;
@@ -53,10 +54,14 @@ function isFreezing(temperatureC, threshold) {
     }
     return temperatureC <= threshold;
 }
-/** Clamp a battery reading to the valid HomeKit 0-100 range. */
+/**
+ * Clamp a battery reading to the valid HomeKit 0-100 range, or return
+ * `undefined` when no usable reading is available so callers can avoid
+ * asserting a misleading default (e.g. a fake "100%" during an outage).
+ */
 function clampBatteryLevel(batteryRemaining) {
     if (typeof batteryRemaining !== 'number' || Number.isNaN(batteryRemaining)) {
-        return 100;
+        return undefined;
     }
     return Math.max(0, Math.min(100, Math.round(batteryRemaining)));
 }
@@ -64,4 +69,14 @@ function clampBatteryLevel(batteryRemaining) {
 function isWaterLeakDetector(device) {
     return device.deviceClass === 'LeakDetector';
 }
-//# sourceMappingURL=utils.js.map
+/**
+ * True when the device should be reported as active in HomeKit. Treats an
+ * explicit offline/not-alive/not-checked-in signal as inactive; missing fields
+ * are optimistically treated as active (the API omits them for healthy devices).
+ */
+function isDeviceActive(device) {
+    return device.isAlive !== false
+        && device.isDeviceOffline !== true
+        && device.hasDeviceCheckedIn !== false;
+}
+//# sourceMappingURL=mappers.js.map

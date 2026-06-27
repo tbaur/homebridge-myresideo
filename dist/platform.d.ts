@@ -21,20 +21,36 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     private tokenManager?;
     private client?;
     private pollTimer?;
+    private discoveryTimer?;
+    private discoveryAttempt;
+    private isPolling;
+    private stopped;
     constructor(log: Logging, config: ResideoPlatformConfig, api: API);
     /** Restore an accessory from the Homebridge cache. */
     configureAccessory(accessory: PlatformAccessory): void;
-    private hasValidCredentials;
     private get refreshRateMs();
     private discoverDevices;
+    /** Errors that re-linking or fixing credentials can't be retried away from. */
+    private isFatal;
+    /**
+     * Retry discovery with capped exponential backoff so a transient outage at
+     * boot doesn't leave the plugin permanently inert until a manual restart.
+     */
+    private scheduleDiscoveryRetry;
     private registerDevice;
+    /** Unregister cached accessories that are no longer present in the account. */
+    private pruneStaleAccessories;
     private optionsForDevice;
     private startPolling;
+    /** Run one poll cycle, skipping if a previous cycle is still in flight. */
+    private runPollCycle;
+    /** Poll every device with bounded concurrency so cycle time stays bounded. */
     private pollAll;
     private handleError;
     /**
      * Persist a rotated refresh token back into config.json so it survives a
-     * Homebridge restart. Best-effort: failures are logged, not thrown.
+     * Homebridge restart. Best-effort: failures are logged, not thrown. Writes
+     * atomically (temp file + rename) so a crash mid-write cannot corrupt config.
      */
     private persistRefreshToken;
 }

@@ -50,8 +50,27 @@ export const DEFAULT_REFRESH_RATE_SEC = 120
 /** Minimum allowed polling interval (seconds) to avoid hammering the API. */
 export const MIN_REFRESH_RATE_SEC = 30
 
-/** Default request timeout (ms) for API calls. */
+/** Default request timeout (ms) for API calls (including token refresh). */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+
+/** Maximum number of token-refresh attempts before surfacing the failure. */
+export const MAX_TOKEN_REFRESH_ATTEMPTS = 3
+
+/**
+ * Number of devices polled concurrently each cycle. Keeps API fan-out bounded
+ * while still parallelizing so cycle time does not grow linearly with devices.
+ */
+export const POLL_DEVICE_CONCURRENCY = 4
+
+/**
+ * Self-healing discovery: if initial device discovery fails (transient cloud or
+ * network outage at boot), retry with capped exponential backoff instead of
+ * leaving the plugin permanently inert until a manual Homebridge restart.
+ */
+export const INITIAL_DISCOVERY_RETRY_MS = 15_000
+
+/** Upper bound on the self-healing discovery backoff. */
+export const MAX_DISCOVERY_RETRY_MS = 5 * 60_000
 
 /**
  * Refresh the access token this many milliseconds before it actually expires,

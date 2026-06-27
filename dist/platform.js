@@ -27,17 +27,28 @@ class ResideoPlatform {
     tokenManager;
     client;
     pollTimer;
+    discoveryTimer;
+    discoveryAttempt = 0;
+    isPolling = false;
+    stopped = false;
     constructor(log, config, api) {
         this.log = log;
         this.api = api;
         this.Service = api.hap.Service;
         this.Characteristic = api.hap.Characteristic;
         this.config = config;
-        if (!this.hasValidCredentials()) {
-            this.log.error('Missing Resideo credentials (consumerKey, consumerSecret, refreshToken). '
-                + 'Open the plugin settings and link your account. Plugin will not start.');
+        const { errors, warnings } = (0, utils_1.validateConfig)(config);
+        for (const warning of warnings) {
+            this.log.warn(warning);
+        }
+        if (errors.length > 0) {
+            for (const error of errors) {
+                this.log.error(error);
+            }
+            this.log.error('Invalid configuration; plugin will not start until it is corrected.');
             return;
         }
+        this.log.info(`Initializing ${this.config.name ?? settings_1.PLATFORM_NAME} platform`);
         this.tokenManager = new api_1.TokenManager({
             consumerKey: config.credentials.consumerKey,
             consumerSecret: config.credentials.consumerSecret,
@@ -49,15 +60,18 @@ class ResideoPlatform {
         this.client = new api_1.ResideoApiClient({
             tokenManager: this.tokenManager,
             apikey: config.credentials.consumerKey,
-            timeoutMs: undefined,
             logger: this.log,
         });
         this.api.on('didFinishLaunching', () => {
             void this.discoverDevices();
         });
         this.api.on('shutdown', () => {
+            this.stopped = true;
             if (this.pollTimer) {
                 clearInterval(this.pollTimer);
+            }
+            if (this.discoveryTimer) {
+                clearTimeout(this.discoveryTimer);
             }
         });
     }
@@ -65,16 +79,12 @@ class ResideoPlatform {
     configureAccessory(accessory) {
         this.accessories.push(accessory);
     }
-    hasValidCredentials() {
-        const c = this.config.credentials;
-        return Boolean(c && c.consumerKey && c.consumerSecret && c.refreshToken);
-    }
     get refreshRateMs() {
         const configured = this.config.options?.refreshRate ?? settings_1.DEFAULT_REFRESH_RATE_SEC;
         return Math.max(configured, settings_1.MIN_REFRESH_RATE_SEC) * 1000;
     }
     async discoverDevices() {
-        if (!this.client) {
+        if (!this.client || this.stopped) {
             return;
         }
         try {
@@ -91,11 +101,40 @@ class ResideoPlatform {
             for (const { device, locationId } of detectors) {
                 this.registerDevice(device, locationId);
             }
+            this.pruneStaleAccessories(new Set(detectors.map(d => d.device.deviceID)));
+            this.discoveryAttempt = 0;
+            await this.runPollCycle();
             this.startPolling();
         }
         catch (err) {
             this.handleError('discoverDevices', err);
+            if (this.isFatal(err)) {
+                this.log.error('Discovery failed with a non-recoverable error; not retrying automatically.');
+                return;
+            }
+            this.scheduleDiscoveryRetry();
         }
+    }
+    /** Errors that re-linking or fixing credentials can't be retried away from. */
+    isFatal(err) {
+        return err instanceof errors_1.RefreshTokenInvalidError
+            || err instanceof errors_1.ConfigurationError
+            || err instanceof errors_1.AuthenticationError;
+    }
+    /**
+     * Retry discovery with capped exponential backoff so a transient outage at
+     * boot doesn't leave the plugin permanently inert until a manual restart.
+     */
+    scheduleDiscoveryRetry() {
+        if (this.stopped) {
+            return;
+        }
+        this.discoveryAttempt++;
+        const wait = Math.min(settings_1.INITIAL_DISCOVERY_RETRY_MS * 2 ** (this.discoveryAttempt - 1), settings_1.MAX_DISCOVERY_RETRY_MS);
+        this.log.warn(`Retrying device discovery in ${Math.round(wait / 1000)}s (attempt ${this.discoveryAttempt})`);
+        this.discoveryTimer = setTimeout(() => {
+            void this.discoverDevices();
+        }, wait);
     }
     registerDevice(device, locationId) {
         const options = this.optionsForDevice(device.deviceID);
@@ -117,6 +156,29 @@ class ResideoPlatform {
         const handler = new leak_sensor_1.LeakSensorAccessory(this, accessory, options, this.config.options?.freezeThresholdCelsius);
         this.handlers.set(device.deviceID, handler);
     }
+    /** Unregister cached accessories that are no longer present in the account. */
+    pruneStaleAccessories(currentDeviceIds) {
+        const stale = this.accessories.filter((accessory) => {
+            const device = accessory.context.device;
+            return Boolean(device?.deviceID) && !currentDeviceIds.has(device.deviceID);
+        });
+        if (stale.length === 0) {
+            return;
+        }
+        this.api.unregisterPlatformAccessories(settings_1.PLUGIN_NAME, settings_1.PLATFORM_NAME, stale);
+        for (const accessory of stale) {
+            const index = this.accessories.indexOf(accessory);
+            if (index !== -1) {
+                this.accessories.splice(index, 1);
+            }
+            const device = accessory.context.device;
+            if (device?.deviceID) {
+                this.handlers.delete(device.deviceID);
+                this.locationByDevice.delete(device.deviceID);
+            }
+            this.log.info(`Removed stale water leak detector: ${accessory.displayName}`);
+        }
+    }
     optionsForDevice(deviceID) {
         const override = this.config.options?.devices?.find(d => d.deviceID === deviceID);
         return override ?? { deviceID };
@@ -126,38 +188,68 @@ class ResideoPlatform {
             clearInterval(this.pollTimer);
         }
         this.pollTimer = setInterval(() => {
-            void this.pollAll();
+            void this.runPollCycle();
         }, this.refreshRateMs);
     }
+    /** Run one poll cycle, skipping if a previous cycle is still in flight. */
+    async runPollCycle() {
+        if (this.isPolling) {
+            this.log.debug('Skipping poll tick; previous cycle still running');
+            return;
+        }
+        this.isPolling = true;
+        try {
+            await this.pollAll();
+        }
+        finally {
+            this.isPolling = false;
+        }
+    }
+    /** Poll every device with bounded concurrency so cycle time stays bounded. */
     async pollAll() {
         if (!this.client) {
             return;
         }
-        for (const [deviceID, handler] of this.handlers) {
-            const locationId = this.locationByDevice.get(deviceID);
-            if (locationId === undefined) {
-                continue;
-            }
-            try {
-                const device = await this.client.getWaterLeakDetector(deviceID, locationId);
-                handler.updateStatus(device);
-            }
-            catch (err) {
-                this.handleError(`poll ${deviceID}`, err);
-            }
+        const deviceIds = [...this.handlers.keys()].filter(id => this.locationByDevice.has(id));
+        const workerCount = Math.min(settings_1.POLL_DEVICE_CONCURRENCY, deviceIds.length);
+        if (workerCount === 0) {
+            return;
         }
+        let nextIndex = 0;
+        const worker = async () => {
+            while (nextIndex < deviceIds.length) {
+                const deviceID = deviceIds[nextIndex++];
+                const locationId = this.locationByDevice.get(deviceID);
+                const handler = this.handlers.get(deviceID);
+                if (locationId === undefined || !handler || !this.client) {
+                    continue;
+                }
+                try {
+                    const device = await this.client.getWaterLeakDetector(deviceID, locationId);
+                    handler.updateStatus(device);
+                }
+                catch (err) {
+                    this.handleError(`poll ${deviceID}`, err);
+                }
+            }
+        };
+        await Promise.all(Array.from({ length: workerCount }, () => worker()));
     }
     handleError(context, err) {
         if (err instanceof errors_1.RefreshTokenInvalidError) {
             this.log.error(`[${context}] Refresh token invalid. Re-link your account in the plugin settings.`);
             return;
         }
-        const message = err instanceof Error ? err.message : String(err);
-        this.log.error(`[${context}] ${message}`);
+        if (err instanceof errors_1.ConfigurationError) {
+            this.log.error(`[${context}] ${err.message}`);
+            return;
+        }
+        this.log.error(`[${context}] ${(0, utils_1.sanitizeError)(err)}`);
     }
     /**
      * Persist a rotated refresh token back into config.json so it survives a
-     * Homebridge restart. Best-effort: failures are logged, not thrown.
+     * Homebridge restart. Best-effort: failures are logged, not thrown. Writes
+     * atomically (temp file + rename) so a crash mid-write cannot corrupt config.
      */
     async persistRefreshToken(newRefreshToken) {
         this.config.credentials.refreshToken = newRefreshToken;
@@ -165,15 +257,18 @@ class ResideoPlatform {
             const configPath = this.api.user.configPath();
             const raw = await node_fs_1.promises.readFile(configPath, 'utf8');
             const parsed = JSON.parse(raw);
-            const block = parsed.platforms?.find(p => p.platform === settings_1.PLATFORM_NAME);
+            const blocks = parsed.platforms?.filter(p => p.platform === settings_1.PLATFORM_NAME) ?? [];
+            const block = blocks.find(p => p.name === this.config.name) ?? blocks[0];
             if (block?.credentials) {
                 block.credentials.refreshToken = newRefreshToken;
-                await node_fs_1.promises.writeFile(configPath, JSON.stringify(parsed, null, 4), 'utf8');
+                const tempPath = `${configPath}.${process.pid}.tmp`;
+                await node_fs_1.promises.writeFile(tempPath, JSON.stringify(parsed, null, 4), 'utf8');
+                await node_fs_1.promises.rename(tempPath, configPath);
                 this.log.debug('Persisted rotated refresh token to config.json');
             }
         }
         catch (err) {
-            this.log.warn(`Could not persist rotated refresh token: ${err instanceof Error ? err.message : String(err)}`);
+            this.log.warn(`Could not persist rotated refresh token: ${(0, utils_1.sanitizeError)(err)}`);
         }
     }
 }

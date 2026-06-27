@@ -17,7 +17,11 @@ import type { PlatformConfig } from 'homebridge';
 export interface ResideoCredentials {
     consumerKey: string;
     consumerSecret: string;
-    accessToken: string;
+    /**
+     * Optional starting access token. Its true expiry is unknown to the plugin,
+     * so it is used optimistically once and then refreshed from `refreshToken`.
+     */
+    accessToken?: string;
     refreshToken: string;
 }
 /** Per-detector display/visibility overrides (keyed by Honeywell deviceID). */

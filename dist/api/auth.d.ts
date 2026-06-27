@@ -8,9 +8,11 @@
  *
  * Resideo issues short-lived access tokens (~30 min) alongside a rotating
  * refresh token. This manager:
+ *   - uses a config-supplied access token optimistically once, then refreshes;
  *   - refreshes proactively, a buffer before expiry, so polls never race expiry;
  *   - collapses concurrent refreshes into a single in-flight request;
- *   - surfaces a typed {@link RefreshTokenInvalidError} on `invalid_grant`;
+ *   - retries transient (network/timeout) refresh failures with backoff;
+ *   - distinguishes an invalid refresh token from rejected API credentials;
  *   - persists the rotated refresh token via {@link TokenManagerOptions.onRefreshToken}.
  */
 import type { TokenResponse } from '../types';
@@ -31,6 +33,8 @@ export interface TokenManagerOptions {
     logger?: AuthLogger;
     /** Injectable clock (ms epoch). Defaults to {@link Date.now}. */
     now?: () => number;
+    /** Maximum refresh attempts on transient failures. */
+    maxRefreshAttempts?: number;
     /**
      * Injectable token-endpoint requester (primarily for tests). Receives the
      * url-encoded form body and the Basic auth header value.
@@ -42,17 +46,24 @@ export declare class TokenManager {
     private refreshToken;
     private expiresAt;
     private refreshInFlight;
+    /**
+     * True while a config-supplied access token (whose true expiry is unknown)
+     * may still be used. Cleared the first time we refresh, after which the
+     * normal proactive-expiry lifecycle takes over.
+     */
+    private accessTokenIsOptimistic;
     private readonly consumerKey;
     private readonly consumerSecret;
     private readonly onRefreshToken?;
     private readonly logger?;
     private readonly now;
+    private readonly maxRefreshAttempts;
     private readonly requestToken;
     constructor(options: TokenManagerOptions);
     /**
      * Return a valid access token, refreshing proactively if the current token is
-     * missing or within the refresh buffer of expiring. Concurrent callers share
-     * a single refresh.
+     * missing or within the refresh buffer of expiring. A config-supplied token is
+     * used optimistically once. Concurrent callers share a single refresh.
      */
     getAccessToken(): Promise<string>;
     /** Force a refresh regardless of the current token's expiry. */
@@ -60,6 +71,11 @@ export declare class TokenManager {
     /** The current (possibly rotated) refresh token. */
     getRefreshToken(): string;
     private refresh;
+    /**
+     * Execute the refresh, retrying transient (network/timeout) failures with
+     * exponential backoff. Auth/parse failures are surfaced immediately.
+     */
+    private performRefresh;
     private applyToken;
 }
 //# sourceMappingURL=auth.d.ts.map

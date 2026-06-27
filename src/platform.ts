@@ -21,16 +21,19 @@ import type {
 
 import { ResideoApiClient, TokenManager } from './api'
 import { LeakSensorAccessory } from './devices/leak-sensor'
-import { RefreshTokenInvalidError } from './errors'
+import { AuthenticationError, ConfigurationError, RefreshTokenInvalidError } from './errors'
 import {
   DEFAULT_REFRESH_RATE_SEC,
+  INITIAL_DISCOVERY_RETRY_MS,
+  MAX_DISCOVERY_RETRY_MS,
   MIN_REFRESH_RATE_SEC,
   PLATFORM_NAME,
   PLUGIN_NAME,
+  POLL_DEVICE_CONCURRENCY,
   UUID_PREFIX,
 } from './settings'
 import type { LeakDetectorOptions, ResideoPlatformConfig, WaterLeakDetector } from './types'
-import { isWaterLeakDetector } from './utils'
+import { isWaterLeakDetector, sanitizeError, validateConfig } from './utils'
 
 export default class ResideoPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof ServiceClass
@@ -44,6 +47,10 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   private tokenManager?: TokenManager
   private client?: ResideoApiClient
   private pollTimer?: ReturnType<typeof setInterval>
+  private discoveryTimer?: ReturnType<typeof setTimeout>
+  private discoveryAttempt = 0
+  private isPolling = false
+  private stopped = false
 
   constructor(
     private readonly log: Logging,
@@ -54,11 +61,19 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     this.Characteristic = api.hap.Characteristic
     this.config = config
 
-    if (!this.hasValidCredentials()) {
-      this.log.error('Missing Resideo credentials (consumerKey, consumerSecret, refreshToken). '
-        + 'Open the plugin settings and link your account. Plugin will not start.')
+    const { errors, warnings } = validateConfig(config)
+    for (const warning of warnings) {
+      this.log.warn(warning)
+    }
+    if (errors.length > 0) {
+      for (const error of errors) {
+        this.log.error(error)
+      }
+      this.log.error('Invalid configuration; plugin will not start until it is corrected.')
       return
     }
+
+    this.log.info(`Initializing ${this.config.name ?? PLATFORM_NAME} platform`)
 
     this.tokenManager = new TokenManager({
       consumerKey: config.credentials.consumerKey,
@@ -72,7 +87,6 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     this.client = new ResideoApiClient({
       tokenManager: this.tokenManager,
       apikey: config.credentials.consumerKey,
-      timeoutMs: undefined,
       logger: this.log,
     })
 
@@ -80,8 +94,12 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       void this.discoverDevices()
     })
     this.api.on('shutdown', () => {
+      this.stopped = true
       if (this.pollTimer) {
         clearInterval(this.pollTimer)
+      }
+      if (this.discoveryTimer) {
+        clearTimeout(this.discoveryTimer)
       }
     })
   }
@@ -91,18 +109,13 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     this.accessories.push(accessory)
   }
 
-  private hasValidCredentials(): boolean {
-    const c = this.config.credentials
-    return Boolean(c && c.consumerKey && c.consumerSecret && c.refreshToken)
-  }
-
   private get refreshRateMs(): number {
     const configured = this.config.options?.refreshRate ?? DEFAULT_REFRESH_RATE_SEC
     return Math.max(configured, MIN_REFRESH_RATE_SEC) * 1000
   }
 
   private async discoverDevices(): Promise<void> {
-    if (!this.client) {
+    if (!this.client || this.stopped) {
       return
     }
     try {
@@ -121,10 +134,45 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         this.registerDevice(device, locationId)
       }
 
+      this.pruneStaleAccessories(new Set(detectors.map(d => d.device.deviceID)))
+
+      this.discoveryAttempt = 0
+      await this.runPollCycle()
       this.startPolling()
     } catch (err) {
       this.handleError('discoverDevices', err)
+      if (this.isFatal(err)) {
+        this.log.error('Discovery failed with a non-recoverable error; not retrying automatically.')
+        return
+      }
+      this.scheduleDiscoveryRetry()
     }
+  }
+
+  /** Errors that re-linking or fixing credentials can't be retried away from. */
+  private isFatal(err: unknown): boolean {
+    return err instanceof RefreshTokenInvalidError
+      || err instanceof ConfigurationError
+      || err instanceof AuthenticationError
+  }
+
+  /**
+   * Retry discovery with capped exponential backoff so a transient outage at
+   * boot doesn't leave the plugin permanently inert until a manual restart.
+   */
+  private scheduleDiscoveryRetry(): void {
+    if (this.stopped) {
+      return
+    }
+    this.discoveryAttempt++
+    const wait = Math.min(
+      INITIAL_DISCOVERY_RETRY_MS * 2 ** (this.discoveryAttempt - 1),
+      MAX_DISCOVERY_RETRY_MS,
+    )
+    this.log.warn(`Retrying device discovery in ${Math.round(wait / 1000)}s (attempt ${this.discoveryAttempt})`)
+    this.discoveryTimer = setTimeout(() => {
+      void this.discoverDevices()
+    }, wait)
   }
 
   private registerDevice(device: WaterLeakDetector, locationId: number): void {
@@ -149,6 +197,31 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     this.handlers.set(device.deviceID, handler)
   }
 
+  /** Unregister cached accessories that are no longer present in the account. */
+  private pruneStaleAccessories(currentDeviceIds: Set<string>): void {
+    const stale = this.accessories.filter((accessory) => {
+      const device = accessory.context.device as WaterLeakDetector | undefined
+      return Boolean(device?.deviceID) && !currentDeviceIds.has(device!.deviceID)
+    })
+    if (stale.length === 0) {
+      return
+    }
+
+    this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, stale)
+    for (const accessory of stale) {
+      const index = this.accessories.indexOf(accessory)
+      if (index !== -1) {
+        this.accessories.splice(index, 1)
+      }
+      const device = accessory.context.device as WaterLeakDetector | undefined
+      if (device?.deviceID) {
+        this.handlers.delete(device.deviceID)
+        this.locationByDevice.delete(device.deviceID)
+      }
+      this.log.info(`Removed stale water leak detector: ${accessory.displayName}`)
+    }
+  }
+
   private optionsForDevice(deviceID: string): LeakDetectorOptions {
     const override = this.config.options?.devices?.find(d => d.deviceID === deviceID)
     return override ?? { deviceID }
@@ -159,26 +232,54 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       clearInterval(this.pollTimer)
     }
     this.pollTimer = setInterval(() => {
-      void this.pollAll()
+      void this.runPollCycle()
     }, this.refreshRateMs)
   }
 
+  /** Run one poll cycle, skipping if a previous cycle is still in flight. */
+  private async runPollCycle(): Promise<void> {
+    if (this.isPolling) {
+      this.log.debug('Skipping poll tick; previous cycle still running')
+      return
+    }
+    this.isPolling = true
+    try {
+      await this.pollAll()
+    } finally {
+      this.isPolling = false
+    }
+  }
+
+  /** Poll every device with bounded concurrency so cycle time stays bounded. */
   private async pollAll(): Promise<void> {
     if (!this.client) {
       return
     }
-    for (const [deviceID, handler] of this.handlers) {
-      const locationId = this.locationByDevice.get(deviceID)
-      if (locationId === undefined) {
-        continue
-      }
-      try {
-        const device = await this.client.getWaterLeakDetector(deviceID, locationId)
-        handler.updateStatus(device)
-      } catch (err) {
-        this.handleError(`poll ${deviceID}`, err)
+    const deviceIds = [...this.handlers.keys()].filter(id => this.locationByDevice.has(id))
+    const workerCount = Math.min(POLL_DEVICE_CONCURRENCY, deviceIds.length)
+    if (workerCount === 0) {
+      return
+    }
+
+    let nextIndex = 0
+    const worker = async (): Promise<void> => {
+      while (nextIndex < deviceIds.length) {
+        const deviceID = deviceIds[nextIndex++]
+        const locationId = this.locationByDevice.get(deviceID)
+        const handler = this.handlers.get(deviceID)
+        if (locationId === undefined || !handler || !this.client) {
+          continue
+        }
+        try {
+          const device = await this.client.getWaterLeakDetector(deviceID, locationId)
+          handler.updateStatus(device)
+        } catch (err) {
+          this.handleError(`poll ${deviceID}`, err)
+        }
       }
     }
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()))
   }
 
   private handleError(context: string, err: unknown): void {
@@ -186,13 +287,17 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       this.log.error(`[${context}] Refresh token invalid. Re-link your account in the plugin settings.`)
       return
     }
-    const message = err instanceof Error ? err.message : String(err)
-    this.log.error(`[${context}] ${message}`)
+    if (err instanceof ConfigurationError) {
+      this.log.error(`[${context}] ${err.message}`)
+      return
+    }
+    this.log.error(`[${context}] ${sanitizeError(err)}`)
   }
 
   /**
    * Persist a rotated refresh token back into config.json so it survives a
-   * Homebridge restart. Best-effort: failures are logged, not thrown.
+   * Homebridge restart. Best-effort: failures are logged, not thrown. Writes
+   * atomically (temp file + rename) so a crash mid-write cannot corrupt config.
    */
   private async persistRefreshToken(newRefreshToken: string): Promise<void> {
     this.config.credentials.refreshToken = newRefreshToken
@@ -200,14 +305,17 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       const configPath = this.api.user.configPath()
       const raw = await fs.readFile(configPath, 'utf8')
       const parsed = JSON.parse(raw) as { platforms?: ResideoPlatformConfig[] }
-      const block = parsed.platforms?.find(p => p.platform === PLATFORM_NAME)
+      const blocks = parsed.platforms?.filter(p => p.platform === PLATFORM_NAME) ?? []
+      const block = blocks.find(p => p.name === this.config.name) ?? blocks[0]
       if (block?.credentials) {
         block.credentials.refreshToken = newRefreshToken
-        await fs.writeFile(configPath, JSON.stringify(parsed, null, 4), 'utf8')
+        const tempPath = `${configPath}.${process.pid}.tmp`
+        await fs.writeFile(tempPath, JSON.stringify(parsed, null, 4), 'utf8')
+        await fs.rename(tempPath, configPath)
         this.log.debug('Persisted rotated refresh token to config.json')
       }
     } catch (err) {
-      this.log.warn(`Could not persist rotated refresh token: ${err instanceof Error ? err.message : String(err)}`)
+      this.log.warn(`Could not persist rotated refresh token: ${sanitizeError(err)}`)
     }
   }
 }

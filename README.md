@@ -12,9 +12,9 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 ## Features
 
 ### Device Support
-- **Automatic Discovery** — Finds every water leak detector across all locations on your account
-- **Leak Detection** — HomeKit Leak Sensor that reflects water-present state in real time
-- **Temperature & Humidity** — Exposed as standard HomeKit sensors (each can be hidden)
+- **Automatic Discovery** — Finds every water leak detector across all locations on your account, and removes detectors that disappear from your account
+- **Leak Detection** — HomeKit Leak Sensor that reflects the water-present state on each polling cycle (default every 120s; see [polling](#configuration-options))
+- **Temperature & Humidity** — Exposed as standard HomeKit sensors (each can be hidden); a missing reading is flagged as a fault rather than shown as a stale value
 - **Battery** — Battery level plus low-battery status
 - **Freeze Sensor** *(optional)* — A HomeKit contact sensor that trips when the temperature drops to or below a configurable threshold
 
@@ -22,8 +22,9 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Resilient OAuth2** — Access tokens are refreshed proactively, before they expire, so polling never stalls on an expired token
 - **Refresh-Token Rotation** — Rotated refresh tokens are persisted automatically and survive restarts
 - **Single-Flight Refresh** — Concurrent calls share one token refresh instead of stampeding the auth endpoint
-- **Automatic Retry** — Transient network and 5xx errors are retried with exponential backoff
-- **Clear Re-Link Signaling** — An expired/invalid refresh token produces a clear, actionable log message instead of a silent failure loop
+- **Automatic Retry** — Transient network, timeout, and 5xx errors are retried with exponential backoff (for both API calls and token refresh)
+- **Self-Healing Discovery** — A transient outage at startup is retried with capped backoff instead of leaving the plugin inert until a restart
+- **Clear Re-Link Signaling** — An expired/invalid refresh token, or rejected API credentials, produce a clear, actionable log message instead of a silent failure loop
 - **Secret Hygiene** — Credentials are never logged; the `apikey` is redacted from any logged URLs
 
 ### Quality
@@ -45,7 +46,9 @@ npm install -g homebridge-myresideo
 
 ### 2. Get API credentials
 
-Create a developer application at [developer.honeywellhome.com](https://developer.honeywellhome.com) to obtain a **Consumer Key (API Key)** and **Consumer Secret (API Secret)**, then link your account to obtain access/refresh tokens. See [`docs/AUTH.md`](docs/AUTH.md) for the full walkthrough.
+Create a developer application at [developer.honeywellhome.com](https://developer.honeywellhome.com) to obtain a **Consumer Key (API Key)** and **Consumer Secret (API Secret)**.
+
+> **Manual token step required.** A built-in account-linking UI is on the [roadmap](docs/ROADMAP.md) but not available yet. For now you must obtain the initial OAuth2 `refreshToken` (and optional `accessToken`) manually via the Authorization Code flow and paste them into the config. The step-by-step walkthrough is in [`docs/AUTH.md`](docs/AUTH.md) and [`docs/API.md`](docs/API.md).
 
 ### 3. Configure
 
@@ -86,7 +89,7 @@ Your detectors appear in the Home app automatically.
 
 | Option | Required | Description |
 |--------|:--------:|-------------|
-| `name` | ✓ | Plugin instance name shown in Homebridge logs |
+| `name` | | Plugin instance name shown in the Homebridge log (defaults to `MyResideo`) |
 | `credentials.consumerKey` | ✓ | Resideo developer application API Key |
 | `credentials.consumerSecret` | ✓ | Resideo developer application API Secret |
 | `credentials.refreshToken` | ✓ | OAuth2 refresh token (set when linking your account) |
@@ -130,10 +133,15 @@ The plugin talks to Resideo over TLS only, redacts tokens and the `apikey` from 
 
 ## More Info
 
+- [Features](docs/FEATURES.md)
 - [API Reference](docs/API.md)
 - [Authentication & Token Lifecycle](docs/AUTH.md)
-- [Development](docs/DEVELOPMENT.md)
+- [Development](DEVELOPMENT.md)
+- [Security Policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+- [Releasing](RELEASING.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Review (security/reliability/maintainability)](docs/REVIEW.md)
 - [Report Issues](https://github.com/tbaur/homebridge-myresideo/issues)
 - [Changelog](CHANGELOG.md)
 

@@ -13,13 +13,9 @@ module.exports = {
 
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
-      tsconfig: {
-        // Override strict settings for tests
-        strict: false,
-        noImplicitAny: false,
-        esModuleInterop: true,
-        allowSyntheticDefaultImports: true,
-      },
+      // Tests compile under the same strict settings as production
+      // (see tsconfig.test.json) so type errors are caught consistently.
+      tsconfig: 'tsconfig.test.json',
     }],
   },
 
@@ -47,8 +43,6 @@ module.exports = {
     '!src/**/*.d.ts',
     '!src/**/index.ts', // Re-export files
     '!src/settings.ts', // Constants only
-    '!src/platform.ts', // Integration-level HAP wiring; covered via integration tests
-    '!src/devices/**', // Integration-level HAP wiring; covered via integration tests
   ],
 
   testMatch: [

@@ -1,24 +1,102 @@
-# Contributing
+# Contributing to homebridge-myresideo
 
-Thanks for your interest in improving homebridge-myresideo!
+Thank you for your interest in contributing! This guide will help you get started.
 
-## Development
+## Getting Started
+
+1. Fork the repository
+2. Clone your fork:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/homebridge-myresideo.git
+   cd homebridge-myresideo
+   ```
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+## Development Workflow
+
+### Running Tests
 
 ```bash
-npm install
-npm run build      # compile TypeScript to dist/
-npm run lint       # eslint
-npm test           # jest with coverage (NODE_ENV=test)
+npm test              # Run all tests with coverage
+npm run lint          # Check code style
+npm run lint:fix      # Auto-fix style issues
 ```
 
-See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for architecture notes.
+### Code Style
 
-## Commit style
+- Use `const`/`let`, never `var`
+- Use async/await over raw Promises
+- Add JSDoc comments for public functions
+- Keep secrets out of logs — route error logging through `sanitizeError`
+- Follow existing code patterns
 
-This repo uses [Conventional Commits](https://www.conventionalcommits.org). PR titles drive automated releases via release-please, so use prefixes like `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
+### Making Changes
 
-## Pull requests
+1. Create a feature branch:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+2. Make your changes
+3. Add/update tests
+4. Ensure all tests pass: `npm test` (coverage must stay >= 80%)
+5. Ensure linting passes: `npm run lint`
+6. Commit with a descriptive message
 
-- Keep changes focused.
-- Add or update tests for changed behavior; coverage must stay >= 80%.
-- Ensure `npm run build`, `npm run lint`, and `npm test` all pass.
+### Commit Messages
+
+Follow [Conventional Commits](https://www.conventionalcommits.org). PR titles drive automated releases via release-please, so use prefixes like:
+
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `docs:` - Documentation only
+- `test:` - Test changes
+- `refactor:` - Code refactoring
+
+Example: `feat: add temperature sensor for leak detectors`
+
+## Pull Request Process
+
+1. Update documentation if needed
+2. Update CHANGELOG.md with your changes
+3. Ensure CI passes (tests, linting)
+4. Request review from maintainers
+
+### PR Checklist
+
+- [ ] Tests added/updated
+- [ ] Linting passes
+- [ ] Documentation updated
+- [ ] CHANGELOG.md updated
+- [ ] Descriptive PR title
+
+## Adding Device Support
+
+See [DEVELOPMENT.md](DEVELOPMENT.md#adding-new-device-support) for details on adding support for new Resideo / Honeywell Home devices.
+
+## Reporting Bugs
+
+Use the GitHub issue template. Include:
+- Homebridge version
+- Plugin version
+- Node.js version
+- Steps to reproduce
+- Expected vs actual behavior
+- Relevant logs (with sensitive data like API keys/tokens redacted)
+
+## Feature Requests
+
+Open an issue with:
+- Clear description of the feature
+- Use case / why it's needed
+- Any implementation ideas
+
+## Questions?
+
+Open a discussion on GitHub or check existing issues.
+
+---
+
+Thank you for contributing! 🎉

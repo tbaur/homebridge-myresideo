@@ -18,6 +18,7 @@ const node_buffer_1 = require("node:buffer");
 const node_https_1 = require("node:https");
 const errors_1 = require("../errors");
 const settings_1 = require("../settings");
+const backoff_1 = require("../utils/backoff");
 class ResideoApiClient {
     tokenManager;
     apikey;
@@ -93,7 +94,7 @@ class ResideoApiClient {
                 lastError = err;
             }
             if (attempt < this.maxRetryAttempts) {
-                await delay(backoffMs(attempt));
+                await (0, backoff_1.delay)((0, backoff_1.backoffMs)(attempt));
             }
         }
         throw lastError instanceof Error ? lastError : new errors_1.NetworkError('Request failed after retries');
@@ -108,13 +109,6 @@ class ResideoApiClient {
     }
 }
 exports.ResideoApiClient = ResideoApiClient;
-/** Exponential backoff with a small base; attempt is 1-indexed. */
-function backoffMs(attempt) {
-    return Math.min(1000 * 2 ** (attempt - 1), 8000);
-}
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
 /** Strip the apikey from a URL before logging. */
 function redact(url) {
     try {

@@ -23,6 +23,7 @@ import {
   WATER_LEAK_DETECTOR_TYPE,
 } from '../settings'
 import type { ResideoLocation, WaterLeakDetector } from '../types'
+import { backoffMs, delay } from '../utils/backoff'
 import type { TokenManager } from './auth'
 
 export interface ClientLogger {
@@ -148,15 +149,6 @@ export class ResideoApiClient {
       throw new ApiParseError(`Failed to parse response from ${redact(url)}`, { cause: err as Error })
     }
   }
-}
-
-/** Exponential backoff with a small base; attempt is 1-indexed. */
-function backoffMs(attempt: number): number {
-  return Math.min(1000 * 2 ** (attempt - 1), 8000)
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 /** Strip the apikey from a URL before logging. */

@@ -32,5 +32,11 @@ export declare class LeakSensorAccessory {
     private get displayName();
     /** Push the latest device state into all HomeKit characteristics. */
     updateStatus(device: WaterLeakDetector): void;
+    /**
+     * Update a sensor reading. When the reading is present, push the value and
+     * clear any fault; when it is missing, flag the service with a general fault
+     * instead of silently retaining a stale value.
+     */
+    private applyReading;
 }
 //# sourceMappingURL=leak-sensor.d.ts.map

@@ -7,6 +7,7 @@
 
 import {
   clampBatteryLevel,
+  isDeviceActive,
   isFreezing,
   isLeakDetected,
   isLowBattery,
@@ -75,8 +76,9 @@ describe('clampBatteryLevel', () => {
     expect(clampBatteryLevel(150)).toBe(100)
   })
 
-  it('defaults to 100 for invalid readings', () => {
-    expect(clampBatteryLevel(undefined)).toBe(100)
+  it('returns undefined for invalid readings (no misleading default)', () => {
+    expect(clampBatteryLevel(undefined)).toBeUndefined()
+    expect(clampBatteryLevel(Number.NaN)).toBeUndefined()
   })
 })
 
@@ -84,5 +86,18 @@ describe('isWaterLeakDetector', () => {
   it('matches the LeakDetector device class', () => {
     expect(isWaterLeakDetector({ deviceClass: 'LeakDetector' })).toBe(true)
     expect(isWaterLeakDetector({ deviceClass: 'Thermostat' })).toBe(false)
+  })
+})
+
+describe('isDeviceActive', () => {
+  it('is active when no negative signal is present', () => {
+    expect(isDeviceActive({})).toBe(true)
+    expect(isDeviceActive({ isAlive: true, isDeviceOffline: false, hasDeviceCheckedIn: true })).toBe(true)
+  })
+
+  it('is inactive when offline, not alive, or not checked in', () => {
+    expect(isDeviceActive({ isDeviceOffline: true })).toBe(false)
+    expect(isDeviceActive({ isAlive: false })).toBe(false)
+    expect(isDeviceActive({ hasDeviceCheckedIn: false })).toBe(false)
   })
 })

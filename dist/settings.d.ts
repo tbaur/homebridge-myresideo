@@ -37,8 +37,23 @@ export declare const LEAK_DETECTOR_DEVICE_CLASS = "LeakDetector";
 export declare const DEFAULT_REFRESH_RATE_SEC = 120;
 /** Minimum allowed polling interval (seconds) to avoid hammering the API. */
 export declare const MIN_REFRESH_RATE_SEC = 30;
-/** Default request timeout (ms) for API calls. */
+/** Default request timeout (ms) for API calls (including token refresh). */
 export declare const DEFAULT_REQUEST_TIMEOUT_MS = 30000;
+/** Maximum number of token-refresh attempts before surfacing the failure. */
+export declare const MAX_TOKEN_REFRESH_ATTEMPTS = 3;
+/**
+ * Number of devices polled concurrently each cycle. Keeps API fan-out bounded
+ * while still parallelizing so cycle time does not grow linearly with devices.
+ */
+export declare const POLL_DEVICE_CONCURRENCY = 4;
+/**
+ * Self-healing discovery: if initial device discovery fails (transient cloud or
+ * network outage at boot), retry with capped exponential backoff instead of
+ * leaving the plugin permanently inert until a manual Homebridge restart.
+ */
+export declare const INITIAL_DISCOVERY_RETRY_MS = 15000;
+/** Upper bound on the self-healing discovery backoff. */
+export declare const MAX_DISCOVERY_RETRY_MS: number;
 /**
  * Refresh the access token this many milliseconds before it actually expires,
  * so an in-flight poll never races a token expiry.

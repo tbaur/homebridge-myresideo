@@ -70,19 +70,23 @@ class LeakSensorAccessory {
         this.leakService.updateCharacteristic(Characteristic.LeakDetected, (0, utils_1.isLeakDetected)(device)
             ? Characteristic.LeakDetected.LEAK_DETECTED
             : Characteristic.LeakDetected.LEAK_NOT_DETECTED);
-        this.leakService.updateCharacteristic(Characteristic.StatusActive, device.hasDeviceCheckedIn !== false);
+        this.leakService.updateCharacteristic(Characteristic.StatusActive, (0, utils_1.isDeviceActive)(device));
+        // Only assert a battery level when the API actually reports one; defaulting
+        // a missing reading to "100% / normal" would mislead users during outages.
         const battery = (0, utils_1.clampBatteryLevel)(device.batteryRemaining);
-        this.batteryService.updateCharacteristic(Characteristic.BatteryLevel, battery);
-        this.batteryService.updateCharacteristic(Characteristic.StatusLowBattery, (0, utils_1.isLowBattery)(device.batteryRemaining)
-            ? Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
-            : Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);
+        if (battery !== undefined) {
+            this.batteryService.updateCharacteristic(Characteristic.BatteryLevel, battery);
+            this.batteryService.updateCharacteristic(Characteristic.StatusLowBattery, (0, utils_1.isLowBattery)(device.batteryRemaining)
+                ? Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
+                : Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL);
+        }
         const temperature = device.currentSensorReadings?.temperature;
-        if (this.temperatureService && typeof temperature === 'number') {
-            this.temperatureService.updateCharacteristic(Characteristic.CurrentTemperature, temperature);
+        if (this.temperatureService) {
+            this.applyReading(this.temperatureService, Characteristic.CurrentTemperature, temperature);
         }
         const humidity = device.currentSensorReadings?.humidity;
-        if (this.humidityService && typeof humidity === 'number') {
-            this.humidityService.updateCharacteristic(Characteristic.CurrentRelativeHumidity, humidity);
+        if (this.humidityService) {
+            this.applyReading(this.humidityService, Characteristic.CurrentRelativeHumidity, humidity);
         }
         if (this.freezeService) {
             const threshold = (0, utils_1.resolveFreezeThreshold)(device, this.options.freezeThresholdCelsius ?? this.defaultFreezeThreshold);
@@ -90,6 +94,21 @@ class LeakSensorAccessory {
             this.freezeService.updateCharacteristic(Characteristic.ContactSensorState, freezing
                 ? Characteristic.ContactSensorState.CONTACT_NOT_DETECTED
                 : Characteristic.ContactSensorState.CONTACT_DETECTED);
+        }
+    }
+    /**
+     * Update a sensor reading. When the reading is present, push the value and
+     * clear any fault; when it is missing, flag the service with a general fault
+     * instead of silently retaining a stale value.
+     */
+    applyReading(service, characteristic, value) {
+        const { Characteristic } = this.platform;
+        if (typeof value === 'number') {
+            service.updateCharacteristic(characteristic, value);
+            service.updateCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+        }
+        else {
+            service.updateCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
         }
     }
 }

@@ -12,7 +12,7 @@ import nock from 'nock'
 
 import { TokenManager } from '../../src/api/auth'
 import { ResideoApiClient } from '../../src/api/client'
-import { NetworkError, RefreshTokenInvalidError } from '../../src/errors'
+import { ConfigurationError, NetworkError, RefreshTokenInvalidError } from '../../src/errors'
 import { API_BASE_URL } from '../../src/settings'
 import type { TokenManager as TokenManagerType } from '../../src/api/auth'
 
@@ -51,10 +51,53 @@ describe('TokenManager default requester (native https)', () => {
     await expect(manager.getAccessToken()).rejects.toBeInstanceOf(RefreshTokenInvalidError)
   })
 
+  it('maps a 401 to a ConfigurationError (rejected API credentials)', async () => {
+    nock(BASE).post('/oauth2/token').reply(401, '{"error":"invalid_client"}')
+
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'wrong',
+      refreshToken: 'r0',
+      maxRefreshAttempts: 1,
+    })
+    await expect(manager.getAccessToken()).rejects.toBeInstanceOf(ConfigurationError)
+  })
+
+  it('maps a non-grant 400 to RefreshTokenInvalidError', async () => {
+    nock(BASE).post('/oauth2/token').reply(400, '{"error":"invalid_request"}')
+
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'r0',
+      maxRefreshAttempts: 1,
+    })
+    await expect(manager.getAccessToken()).rejects.toBeInstanceOf(RefreshTokenInvalidError)
+  })
+
+  it('does not embed the raw response body in the refresh error message', async () => {
+    nock(BASE).post('/oauth2/token').reply(400, '{"error":"invalid_grant","secret_leak":"do-not-log"}')
+
+    const manager = new TokenManager({ consumerKey: 'key', consumerSecret: 'secret', refreshToken: 'bad' })
+    let caught: unknown
+    try {
+      await manager.getAccessToken()
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(RefreshTokenInvalidError)
+    expect((caught as Error).message).not.toContain('do-not-log')
+  })
+
   it('maps a 500 to a NetworkError', async () => {
     nock(BASE).post('/oauth2/token').reply(500, 'boom')
 
-    const manager = new TokenManager({ consumerKey: 'key', consumerSecret: 'secret', refreshToken: 'r0' })
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'r0',
+      maxRefreshAttempts: 1,
+    })
     await expect(manager.getAccessToken()).rejects.toBeInstanceOf(NetworkError)
   })
 })

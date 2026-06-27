@@ -1,0 +1,78 @@
+"use strict";
+/**
+ * Copyright (c) 2026 tbaur
+ *
+ * Licensed under the Apache License, Version 2.0
+ * See LICENSE file for full license text
+ *
+ * @fileoverview Configuration validation. Validates the Homebridge platform
+ * config at startup so misconfiguration fails fast with an actionable message
+ * instead of surfacing as an opaque runtime error later.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.validateConfig = validateConfig;
+const settings_1 = require("../settings");
+/** Lowest plausible freeze threshold in Celsius (sanity bound). */
+const MIN_FREEZE_THRESHOLD_C = -40;
+/** Highest plausible freeze threshold in Celsius (sanity bound). */
+const MAX_FREEZE_THRESHOLD_C = 40;
+function isNonEmptyString(value) {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+/**
+ * Validate the platform configuration block. Pure and side-effect free so it is
+ * trivially unit-testable; the caller decides how to surface the results.
+ */
+function validateConfig(config) {
+    const errors = [];
+    const warnings = [];
+    const credentials = config?.credentials;
+    if (!credentials || typeof credentials !== 'object') {
+        errors.push('Missing "credentials". Open the plugin settings and link your Resideo account.');
+        return { errors, warnings };
+    }
+    if (!isNonEmptyString(credentials.consumerKey)) {
+        errors.push('credentials.consumerKey (API Key) is required.');
+    }
+    if (!isNonEmptyString(credentials.consumerSecret)) {
+        errors.push('credentials.consumerSecret (API Secret) is required.');
+    }
+    if (!isNonEmptyString(credentials.refreshToken)) {
+        errors.push('credentials.refreshToken is required. Re-link your account in the plugin settings.');
+    }
+    const options = config?.options;
+    if (options) {
+        const { refreshRate, freezeThresholdCelsius, devices } = options;
+        if (refreshRate !== undefined) {
+            if (typeof refreshRate !== 'number' || Number.isNaN(refreshRate)) {
+                warnings.push('options.refreshRate must be a number; using the default instead.');
+            }
+            else if (refreshRate < settings_1.MIN_REFRESH_RATE_SEC) {
+                warnings.push(`options.refreshRate ${refreshRate}s is below the ${settings_1.MIN_REFRESH_RATE_SEC}s minimum; it will be clamped.`);
+            }
+        }
+        if (freezeThresholdCelsius !== undefined) {
+            if (typeof freezeThresholdCelsius !== 'number' || Number.isNaN(freezeThresholdCelsius)) {
+                warnings.push('options.freezeThresholdCelsius must be a number; using the default instead.');
+            }
+            else if (freezeThresholdCelsius < MIN_FREEZE_THRESHOLD_C || freezeThresholdCelsius > MAX_FREEZE_THRESHOLD_C) {
+                warnings.push(`options.freezeThresholdCelsius ${freezeThresholdCelsius} is outside the plausible range `
+                    + `(${MIN_FREEZE_THRESHOLD_C}..${MAX_FREEZE_THRESHOLD_C}°C); using the default instead.`);
+            }
+        }
+        if (devices !== undefined) {
+            if (!Array.isArray(devices)) {
+                warnings.push('options.devices must be an array; per-device overrides ignored.');
+            }
+            else {
+                devices.forEach((device, index) => {
+                    if (!isNonEmptyString(device?.deviceID)) {
+                        warnings.push(`options.devices[${index}] is missing a deviceID and will be ignored.`);
+                    }
+                });
+            }
+        }
+    }
+    return { errors, warnings };
+}
+//# sourceMappingURL=validators.js.map

@@ -8,7 +8,7 @@
  * @fileoverview Plugin-wide constants and Resideo / Honeywell Home API endpoints.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_FREEZE_THRESHOLD_C = exports.LOW_BATTERY_THRESHOLD = exports.DEFAULT_TOKEN_TTL_SEC = exports.TOKEN_REFRESH_BUFFER_MS = exports.DEFAULT_REQUEST_TIMEOUT_MS = exports.MIN_REFRESH_RATE_SEC = exports.DEFAULT_REFRESH_RATE_SEC = exports.LEAK_DETECTOR_DEVICE_CLASS = exports.WATER_LEAK_DETECTOR_TYPE = exports.DEVICES_URL = exports.LOCATIONS_URL = exports.TOKEN_URL = exports.AUTHORIZE_URL = exports.API_BASE_URL = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
+exports.DEFAULT_FREEZE_THRESHOLD_C = exports.LOW_BATTERY_THRESHOLD = exports.DEFAULT_TOKEN_TTL_SEC = exports.TOKEN_REFRESH_BUFFER_MS = exports.MAX_DISCOVERY_RETRY_MS = exports.INITIAL_DISCOVERY_RETRY_MS = exports.POLL_DEVICE_CONCURRENCY = exports.MAX_TOKEN_REFRESH_ATTEMPTS = exports.DEFAULT_REQUEST_TIMEOUT_MS = exports.MIN_REFRESH_RATE_SEC = exports.DEFAULT_REFRESH_RATE_SEC = exports.LEAK_DETECTOR_DEVICE_CLASS = exports.WATER_LEAK_DETECTOR_TYPE = exports.DEVICES_URL = exports.LOCATIONS_URL = exports.TOKEN_URL = exports.AUTHORIZE_URL = exports.API_BASE_URL = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
 /** Name used to register the plugin with Homebridge (must match package.json name). */
 exports.PLUGIN_NAME = 'homebridge-myresideo';
 /** Platform identifier referenced in the user's Homebridge config. */
@@ -40,8 +40,23 @@ exports.LEAK_DETECTOR_DEVICE_CLASS = 'LeakDetector';
 exports.DEFAULT_REFRESH_RATE_SEC = 120;
 /** Minimum allowed polling interval (seconds) to avoid hammering the API. */
 exports.MIN_REFRESH_RATE_SEC = 30;
-/** Default request timeout (ms) for API calls. */
+/** Default request timeout (ms) for API calls (including token refresh). */
 exports.DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** Maximum number of token-refresh attempts before surfacing the failure. */
+exports.MAX_TOKEN_REFRESH_ATTEMPTS = 3;
+/**
+ * Number of devices polled concurrently each cycle. Keeps API fan-out bounded
+ * while still parallelizing so cycle time does not grow linearly with devices.
+ */
+exports.POLL_DEVICE_CONCURRENCY = 4;
+/**
+ * Self-healing discovery: if initial device discovery fails (transient cloud or
+ * network outage at boot), retry with capped exponential backoff instead of
+ * leaving the plugin permanently inert until a manual Homebridge restart.
+ */
+exports.INITIAL_DISCOVERY_RETRY_MS = 15_000;
+/** Upper bound on the self-healing discovery backoff. */
+exports.MAX_DISCOVERY_RETRY_MS = 5 * 60_000;
 /**
  * Refresh the access token this many milliseconds before it actually expires,
  * so an in-flight poll never races a token expiry.

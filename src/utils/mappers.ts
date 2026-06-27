@@ -8,8 +8,8 @@
  * HomeKit-friendly values. Kept side-effect free so they are trivially testable.
  */
 
-import { DEFAULT_FREEZE_THRESHOLD_C, LOW_BATTERY_THRESHOLD } from './settings'
-import type { WaterLeakDetector } from './types'
+import { DEFAULT_FREEZE_THRESHOLD_C, LOW_BATTERY_THRESHOLD } from '../settings'
+import type { WaterLeakDetector } from '../types'
 
 /** True when liquid water is currently detected. */
 export function isLeakDetected(device: Pick<WaterLeakDetector, 'waterPresent'>): boolean {
@@ -55,10 +55,14 @@ export function isFreezing(temperatureC: number | undefined, threshold: number):
   return temperatureC <= threshold
 }
 
-/** Clamp a battery reading to the valid HomeKit 0-100 range. */
-export function clampBatteryLevel(batteryRemaining: number | undefined): number {
+/**
+ * Clamp a battery reading to the valid HomeKit 0-100 range, or return
+ * `undefined` when no usable reading is available so callers can avoid
+ * asserting a misleading default (e.g. a fake "100%" during an outage).
+ */
+export function clampBatteryLevel(batteryRemaining: number | undefined): number | undefined {
   if (typeof batteryRemaining !== 'number' || Number.isNaN(batteryRemaining)) {
-    return 100
+    return undefined
   }
   return Math.max(0, Math.min(100, Math.round(batteryRemaining)))
 }
@@ -66,4 +70,17 @@ export function clampBatteryLevel(batteryRemaining: number | undefined): number 
 /** Identify whether an API device record is a water leak detector. */
 export function isWaterLeakDetector(device: Pick<WaterLeakDetector, 'deviceClass'>): boolean {
   return device.deviceClass === 'LeakDetector'
+}
+
+/**
+ * True when the device should be reported as active in HomeKit. Treats an
+ * explicit offline/not-alive/not-checked-in signal as inactive; missing fields
+ * are optimistically treated as active (the API omits them for healthy devices).
+ */
+export function isDeviceActive(
+  device: Pick<WaterLeakDetector, 'isAlive' | 'isDeviceOffline' | 'hasDeviceCheckedIn'>,
+): boolean {
+  return device.isAlive !== false
+    && device.isDeviceOffline !== true
+    && device.hasDeviceCheckedIn !== false
 }

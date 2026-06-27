@@ -6,7 +6,7 @@
  */
 
 import { TokenManager } from '../../src/api/auth'
-import { RefreshTokenInvalidError } from '../../src/errors'
+import { NetworkError, RefreshTokenInvalidError } from '../../src/errors'
 import type { TokenResponse } from '../../src/types'
 
 function makeTokenResponse(overrides: Partial<TokenResponse> = {}): TokenResponse {
@@ -113,5 +113,52 @@ describe('TokenManager', () => {
     })
 
     await expect(manager.getAccessToken()).rejects.toBeInstanceOf(RefreshTokenInvalidError)
+  })
+
+  it('uses a config-supplied access token optimistically without an immediate refresh', async () => {
+    const requestToken = jest.fn().mockResolvedValue(makeTokenResponse())
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'refresh-0',
+      accessToken: 'config-access',
+      requestToken,
+    })
+
+    await expect(manager.getAccessToken()).resolves.toBe('config-access')
+    expect(requestToken).not.toHaveBeenCalled()
+
+    // After the optimistic use, the next call refreshes to establish a real expiry.
+    await expect(manager.getAccessToken()).resolves.toBe('access-1')
+    expect(requestToken).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a transient network failure during refresh, then succeeds', async () => {
+    const requestToken = jest.fn()
+      .mockRejectedValueOnce(new NetworkError('connection reset'))
+      .mockResolvedValueOnce(makeTokenResponse())
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'refresh-0',
+      requestToken,
+    })
+
+    await expect(manager.getAccessToken()).resolves.toBe('access-1')
+    expect(requestToken).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives up after maxRefreshAttempts transient failures', async () => {
+    const requestToken = jest.fn().mockRejectedValue(new NetworkError('down'))
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'refresh-0',
+      maxRefreshAttempts: 2,
+      requestToken,
+    })
+
+    await expect(manager.getAccessToken()).rejects.toBeInstanceOf(NetworkError)
+    expect(requestToken).toHaveBeenCalledTimes(2)
   })
 })
