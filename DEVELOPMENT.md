@@ -27,7 +27,8 @@ scripts/
 
 ## Design principles
 
-- **No runtime dependencies.** Uses Node's native `https`. `homebridge` is a dev-only dependency (types) injected at runtime by the host.
+- **No runtime dependencies.** Uses Node's native `https`. `homebridge` is a dev-only dependency (types) injected at runtime by the host. The published package therefore has an empty `dependencies` block and `npm audit --omit=dev` reports zero advisories.
+- **Dev-dependency hygiene.** A single `overrides` entry pins `js-yaml` to `^4.2.0` across the dev tree, eliminating a transitive moderate advisory (GHSA-h67p-54hq-rp68) that reached `js-yaml@3.x` via jest's coverage chain (`babel-plugin-istanbul` → `@istanbuljs/load-nyc-config`). It is dev-only and never shipped.
 - **Pure logic is isolated** in `utils/` and `errors/` so it is trivially unit-testable; network/HAP code accepts injectable transports for testing.
 - **Strict TypeScript** (`noImplicitAny`, `noUnusedLocals`, etc.).
 - **Fail fast on bad config.** `validateConfig` runs in the platform constructor; fatal errors stop the plugin with an actionable message, non-fatal issues log a warning and fall back to defaults.
