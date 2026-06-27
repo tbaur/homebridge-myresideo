@@ -59,10 +59,17 @@ export interface TokenResponse {
     expires_in: string | number;
     token_type?: string;
 }
-/** A current alarm entry on a device (e.g. high temperature/humidity, offline). */
+/**
+ * A current alarm entry on a device (e.g. high temperature/humidity, offline).
+ *
+ * NOTE: `currentAlarms` was empty on every observed (healthy) device, so the
+ * entry shape is not yet verified against live data. Consumers must treat these
+ * fields defensively. This is hardened in the alarm-to-StatusFault work.
+ */
 export interface DeviceAlarm {
-    type: string;
-    created: string;
+    type?: string;
+    created?: string;
+    [key: string]: unknown;
 }
 /** Latest temperature/humidity readings from a water leak detector. */
 export interface CurrentSensorReadings {
@@ -99,6 +106,11 @@ export interface DeviceSettings {
  * A Water Leak Detector device as returned by
  * `GET /v2/devices/waterLeakDetectors/{deviceId}` and embedded in
  * `GET /v2/locations`.
+ *
+ * Verified against a real WLD3 payload (firmware 0.6.8A4/A5): the single-device
+ * endpoint returns the same shape as the embedded location view. Only the fields
+ * the plugin consumes are required; the rest are optional and documented for
+ * reference. Unlisted API fields are ignored.
  */
 export interface WaterLeakDetector {
     deviceID: string;
@@ -117,6 +129,18 @@ export interface WaterLeakDetector {
     isAlive?: boolean;
     wifiSignalStrength?: number;
     deviceSettings?: DeviceSettings;
+    /** ISO timestamp of the device's last cloud check-in. */
+    lastCheckin?: string;
+    /** Numeric internal device identifier (distinct from the UUID `deviceID`). */
+    deviceInternalID?: number;
+    /** Hardware MAC address. */
+    macID?: string;
+    /** Hardware variant, e.g. "WLD3". */
+    deviceVariant?: string;
+    isUpgrading?: boolean;
+    isProvisioned?: boolean;
+    /** ISO timestamp after which the device is considered offline. */
+    deviceOfflineTime?: string;
 }
 /** A location and the devices registered to it. */
 export interface ResideoLocation {

@@ -1,0 +1,107 @@
+[
+  {
+    "locationID": 100001,
+    "name": "Example Home",
+    "country": "US",
+    "devices": [
+      {
+        "firmwareVer": "0.0.0",
+        "waterPresent": false,
+        "currentSensorReadings": { "time": "2026-01-01T00:00:00", "temperature": 20.5, "humidity": 50 },
+        "currentAlarms": [],
+        "lastCheckin": "2026-01-01T00:00:00",
+        "batteryRemaining": 90,
+        "isRegistered": true,
+        "hasDeviceCheckedIn": true,
+        "isDeviceOffline": false,
+        "wifiSignalStrength": -60,
+        "deviceClass": "LeakDetector",
+        "deviceType": "Water Leak Detector",
+        "deviceID": "00000000-0000-4000-8000-000000000001",
+        "deviceInternalID": 1,
+        "userDefinedDeviceName": "Healthy Detector",
+        "isAlive": true,
+        "macID": "00:00:00:00:00:01",
+        "deviceSettings": {
+          "temp": { "high": { "limit": 34 }, "low": { "limit": 4 } },
+          "humidity": { "high": { "limit": 80 }, "low": { "limit": 20 } },
+          "userDefinedName": "Healthy Detector",
+          "buzzerMuted": false
+        },
+        "deviceVariant": "WLD3"
+      },
+      {
+        "firmwareVer": "0.0.0",
+        "waterPresent": false,
+        "currentSensorReadings": { "time": "2026-01-01T00:00:00", "temperature": 19.0, "humidity": 55 },
+        "currentAlarms": [],
+        "batteryRemaining": 10,
+        "isRegistered": true,
+        "hasDeviceCheckedIn": true,
+        "isDeviceOffline": false,
+        "deviceClass": "LeakDetector",
+        "deviceType": "Water Leak Detector",
+        "deviceID": "00000000-0000-4000-8000-000000000002",
+        "userDefinedDeviceName": "Low Battery Detector",
+        "isAlive": true,
+        "deviceSettings": { "temp": { "low": { "limit": 4 } } },
+        "deviceVariant": "WLD3"
+      },
+      {
+        "firmwareVer": "0.0.0",
+        "waterPresent": true,
+        "currentSensorReadings": { "time": "2026-01-01T00:00:00", "temperature": 18.0, "humidity": 70 },
+        "currentAlarms": [],
+        "batteryRemaining": 80,
+        "isRegistered": true,
+        "hasDeviceCheckedIn": true,
+        "isDeviceOffline": false,
+        "deviceClass": "LeakDetector",
+        "deviceType": "Water Leak Detector",
+        "deviceID": "00000000-0000-4000-8000-000000000003",
+        "userDefinedDeviceName": "Leaking Detector",
+        "isAlive": true,
+        "deviceSettings": { "temp": { "low": { "limit": 4 } } },
+        "deviceVariant": "WLD3"
+      },
+      {
+        "firmwareVer": "0.0.0",
+        "waterPresent": false,
+        "currentSensorReadings": { "time": "2026-01-01T00:00:00", "temperature": 2.0, "humidity": 40 },
+        "currentAlarms": [],
+        "batteryRemaining": 65,
+        "isRegistered": true,
+        "hasDeviceCheckedIn": false,
+        "isDeviceOffline": true,
+        "deviceClass": "LeakDetector",
+        "deviceType": "Water Leak Detector",
+        "deviceID": "00000000-0000-4000-8000-000000000004",
+        "userDefinedDeviceName": "Offline Cold Detector",
+        "isAlive": false,
+        "deviceSettings": { "temp": { "low": { "limit": 4 } } },
+        "deviceVariant": "WLD3"
+      },
+      {
+        "firmwareVer": "0.0.0",
+        "waterPresent": false,
+        "currentAlarms": [],
+        "isRegistered": true,
+        "hasDeviceCheckedIn": true,
+        "isDeviceOffline": false,
+        "deviceClass": "LeakDetector",
+        "deviceType": "Water Leak Detector",
+        "deviceID": "00000000-0000-4000-8000-000000000005",
+        "userDefinedDeviceName": "No Readings Detector",
+        "isAlive": true,
+        "deviceVariant": "WLD3"
+      },
+      {
+        "deviceClass": "Thermostat",
+        "deviceType": "Thermostat",
+        "deviceID": "00000000-0000-4000-8000-0000000000ff",
+        "userDefinedDeviceName": "Not A Leak Detector"
+      }
+    ],
+    "users": []
+  }
+]
