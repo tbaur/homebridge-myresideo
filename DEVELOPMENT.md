@@ -20,6 +20,9 @@ src/
     sanitizers.ts     Secret redaction / token masking for logs.
     validators.ts     Startup config validation.
     index.ts          Barrel exports.
+scripts/
+  get-tokens.mjs      Dev helper: runs the OAuth2 Authorization Code flow to
+                      obtain the initial refresh/access tokens (see docs/AUTH.md).
 ```
 
 ## Design principles
@@ -56,6 +59,7 @@ npm run lint           # eslint
 npm test               # jest with coverage (NODE_ENV=test)
 npm run test:unit      # unit tests only
 npm run test:integration   # nock-backed integration tests
+npm run get-tokens -- --key <KEY> --secret <SECRET>   # obtain initial OAuth2 tokens
 ```
 
 ## Adding new device support

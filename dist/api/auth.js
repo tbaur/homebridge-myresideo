@@ -18,6 +18,8 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TokenManager = void 0;
+exports.buildAuthorizeUrl = buildAuthorizeUrl;
+exports.exchangeAuthorizationCode = exchangeAuthorizationCode;
 const node_buffer_1 = require("node:buffer");
 const node_https_1 = require("node:https");
 const errors_1 = require("../errors");
@@ -133,6 +135,55 @@ class TokenManager {
     }
 }
 exports.TokenManager = TokenManager;
+/**
+ * Build the browser authorize URL for the OAuth2 Authorization Code flow.
+ *
+ * The user opens this URL, signs in, and approves access; Resideo then redirects
+ * to `redirectUri?code=...`. Used by the `get-tokens` helper script.
+ */
+function buildAuthorizeUrl(consumerKey, redirectUri) {
+    if (!consumerKey) {
+        throw new errors_1.ValidationError('consumerKey is required to build the authorize URL');
+    }
+    if (!redirectUri) {
+        throw new errors_1.ValidationError('redirectUri is required to build the authorize URL');
+    }
+    const url = new URL(settings_1.AUTHORIZE_URL);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', consumerKey);
+    url.searchParams.set('redirect_uri', redirectUri);
+    return url.toString();
+}
+/**
+ * Exchange a one-time authorization `code` for the initial access/refresh token
+ * pair (the `grant_type=authorization_code` leg of the OAuth2 flow). This is the
+ * tested core of the `get-tokens` helper; the returned `refresh_token` is what a
+ * user pastes into the plugin config.
+ *
+ * Error mapping (invalid_grant, invalid_client, etc.) is shared with token
+ * refresh via {@link defaultRequestToken}, so failures surface as the same typed
+ * errors and the raw response body is never logged.
+ */
+async function exchangeAuthorizationCode(options) {
+    const { consumerKey, consumerSecret, code, redirectUri } = options;
+    if (!consumerKey || !consumerSecret) {
+        throw new errors_1.ValidationError('consumerKey and consumerSecret are required');
+    }
+    if (!code) {
+        throw new errors_1.ValidationError('Authorization code is required');
+    }
+    if (!redirectUri) {
+        throw new errors_1.ValidationError('redirectUri is required');
+    }
+    const requestToken = options.requestToken ?? defaultRequestToken;
+    const basicAuth = node_buffer_1.Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+    const formBody = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+    }).toString();
+    return requestToken(formBody, basicAuth);
+}
 /**
  * Default token-endpoint requester using Node's native https. POSTs a
  * url-encoded form with a Basic auth header, per the Honeywell Home OAuth2 spec.

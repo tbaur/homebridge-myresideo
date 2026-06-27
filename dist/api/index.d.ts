@@ -6,8 +6,8 @@
  *
  * @fileoverview API module exports.
  */
-export { TokenManager } from './auth';
-export type { AuthLogger, TokenManagerOptions } from './auth';
+export { TokenManager, buildAuthorizeUrl, exchangeAuthorizationCode } from './auth';
+export type { AuthLogger, AuthorizationCodeExchangeOptions, RequestToken, TokenManagerOptions, } from './auth';
 export { ResideoApiClient } from './client';
 export type { ApiClientOptions, ClientLogger, RawResponse } from './client';
 //# sourceMappingURL=index.d.ts.map

@@ -48,7 +48,7 @@ npm install -g homebridge-myresideo
 
 Create a developer application at [developer.honeywellhome.com](https://developer.honeywellhome.com) to obtain a **Consumer Key (API Key)** and **Consumer Secret (API Secret)**.
 
-> **Manual token step required.** A built-in account-linking UI is on the [roadmap](docs/ROADMAP.md) but not available yet. For now you must obtain the initial OAuth2 `refreshToken` (and optional `accessToken`) manually via the Authorization Code flow and paste them into the config. The step-by-step walkthrough is in [`docs/AUTH.md`](docs/AUTH.md) and [`docs/API.md`](docs/API.md).
+> **Manual token step required.** A built-in account-linking UI is on the [roadmap](docs/ROADMAP.md) but not available yet. For now, obtain the initial OAuth2 `refreshToken` (and `accessToken`) with the included helper script and paste them into the config. From a clone of this repo, run `npm run build && npm run get-tokens -- --key <CONSUMER_KEY> --secret <CONSUMER_SECRET>`; it opens your browser, captures the redirect, and prints a ready-to-paste `credentials` block. The full walkthrough — including registering the redirect URI — is in [`docs/AUTH.md`](docs/AUTH.md); the underlying API is documented in [`docs/API.md`](docs/API.md).
 
 ### 3. Configure
 

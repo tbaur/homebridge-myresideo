@@ -4,11 +4,33 @@
 
 1. Sign in / register at <https://developer.honeywellhome.com/user>.
 2. Create a new application; give it a name.
-3. Set the **Callback (Redirect) URL** to the value the plugin's link flow provides.
-4. Copy the generated **Consumer Key (API Key)** and **Consumer Secret (API Secret)** into the plugin settings.
-5. Use the **Link Account** flow to authorize and obtain the initial `accessToken` / `refreshToken`.
+3. Set the **Callback (Redirect) URL** to a localhost URL you will use with the helper script below. The default the script expects is `http://localhost:8581/oauth/callback`; if you register a different value, pass it via `--redirect-uri`. It must match byte-for-byte.
+4. Copy the generated **Consumer Key (API Key)** and **Consumer Secret (API Secret)**.
+5. Run the helper script (see below) to obtain the initial `accessToken` / `refreshToken`, then paste them into the plugin config.
 
-> **The account-linking UI is on the roadmap (see [`ROADMAP.md`](ROADMAP.md)) and is not available yet.** Until then, you must obtain the initial `refreshToken` (and optionally `accessToken`) manually via the Authorization Code flow described in [`API.md`](API.md), then paste them into the plugin config.
+> **The account-linking UI is on the roadmap (see [`ROADMAP.md`](ROADMAP.md)) and is not available yet.** Until then, use the `get-tokens` helper script to complete the Authorization Code flow, then paste the resulting tokens into the plugin config.
+
+## Obtaining tokens with the `get-tokens` helper
+
+The repository ships a one-off script that runs the OAuth2 Authorization Code flow for you. It starts a temporary localhost server on your registered redirect URI, opens the Resideo authorize page in your browser, captures the returned `code`, exchanges it for tokens, and prints a ready-to-paste `credentials` block. The token exchange itself is the same code the plugin uses at runtime (`src/api/auth.ts`) and is covered by unit tests.
+
+From a clone of this repository:
+
+```bash
+npm install            # also builds dist/ via the prepare script
+npm run get-tokens -- --key <CONSUMER_KEY> --secret <CONSUMER_SECRET>
+```
+
+If you registered a redirect URI other than the default, pass it explicitly:
+
+```bash
+npm run get-tokens -- \
+  --key <CONSUMER_KEY> \
+  --secret <CONSUMER_SECRET> \
+  --redirect-uri http://localhost:8581/oauth/callback
+```
+
+Credentials and the redirect URI may also be supplied via the `RESIDEO_CONSUMER_KEY`, `RESIDEO_CONSUMER_SECRET`, and `RESIDEO_REDIRECT_URI` environment variables instead of flags. The redirect URI must point at `localhost` or `127.0.0.1` so the script can receive the redirect, and must match the value registered on your developer application exactly. The script prints your tokens to the terminal only — nothing is written to disk or sent anywhere except Resideo's token endpoint.
 
 ## How the plugin manages tokens
 

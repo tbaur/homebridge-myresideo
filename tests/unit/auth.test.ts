@@ -5,8 +5,9 @@
  * See LICENSE file for full license text
  */
 
-import { TokenManager } from '../../src/api/auth'
-import { NetworkError, RefreshTokenInvalidError } from '../../src/errors'
+import { TokenManager, buildAuthorizeUrl, exchangeAuthorizationCode } from '../../src/api/auth'
+import { NetworkError, RefreshTokenInvalidError, ValidationError } from '../../src/errors'
+import { AUTHORIZE_URL } from '../../src/settings'
 import type { TokenResponse } from '../../src/types'
 
 function makeTokenResponse(overrides: Partial<TokenResponse> = {}): TokenResponse {
@@ -160,5 +161,76 @@ describe('TokenManager', () => {
 
     await expect(manager.getAccessToken()).rejects.toBeInstanceOf(NetworkError)
     expect(requestToken).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('buildAuthorizeUrl', () => {
+  it('builds the authorize URL with the expected query parameters', () => {
+    const url = new URL(buildAuthorizeUrl('my-key', 'http://localhost:8581/oauth/callback'))
+    expect(`${url.origin}${url.pathname}`).toBe(AUTHORIZE_URL)
+    expect(url.searchParams.get('response_type')).toBe('code')
+    expect(url.searchParams.get('client_id')).toBe('my-key')
+    expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:8581/oauth/callback')
+  })
+
+  it('url-encodes the redirect URI', () => {
+    const url = buildAuthorizeUrl('k', 'http://localhost:8581/oauth/callback?x=1')
+    expect(url).toContain('redirect_uri=http%3A%2F%2Flocalhost%3A8581%2Foauth%2Fcallback%3Fx%3D1')
+  })
+
+  it('rejects a missing consumer key', () => {
+    expect(() => buildAuthorizeUrl('', 'http://localhost/cb')).toThrow(ValidationError)
+  })
+
+  it('rejects a missing redirect URI', () => {
+    expect(() => buildAuthorizeUrl('k', '')).toThrow(ValidationError)
+  })
+})
+
+describe('exchangeAuthorizationCode', () => {
+  it('posts the authorization_code grant with the right form body and Basic auth', async () => {
+    const requestToken = jest.fn().mockResolvedValue(makeTokenResponse())
+    const tokens = await exchangeAuthorizationCode({
+      consumerKey: 'my-key',
+      consumerSecret: 'my-secret',
+      code: 'auth-code',
+      redirectUri: 'http://localhost:8581/oauth/callback',
+      requestToken,
+    })
+
+    expect(tokens).toEqual(makeTokenResponse())
+    expect(requestToken).toHaveBeenCalledTimes(1)
+    const [formBody, basicAuth] = requestToken.mock.calls[0]
+    const params = new URLSearchParams(formBody as string)
+    expect(params.get('grant_type')).toBe('authorization_code')
+    expect(params.get('code')).toBe('auth-code')
+    expect(params.get('redirect_uri')).toBe('http://localhost:8581/oauth/callback')
+    expect(Buffer.from(basicAuth as string, 'base64').toString('utf8')).toBe('my-key:my-secret')
+  })
+
+  it('propagates a typed error from the token endpoint', async () => {
+    const requestToken = jest.fn().mockRejectedValue(new RefreshTokenInvalidError())
+    await expect(
+      exchangeAuthorizationCode({
+        consumerKey: 'k',
+        consumerSecret: 's',
+        code: 'bad',
+        redirectUri: 'http://localhost/cb',
+        requestToken,
+      }),
+    ).rejects.toBeInstanceOf(RefreshTokenInvalidError)
+  })
+
+  it.each([
+    ['', 's', 'code', 'http://localhost/cb'],
+    ['k', '', 'code', 'http://localhost/cb'],
+    ['k', 's', '', 'http://localhost/cb'],
+    ['k', 's', 'code', ''],
+  ])('rejects missing inputs (key=%p secret=%p code=%p uri=%p)', async (consumerKey, consumerSecret, code, redirectUri) => {
+    const requestToken = jest.fn()
+    await expect(
+      exchangeAuthorizationCode({ consumerKey, consumerSecret, code, redirectUri, requestToken }),
+    ).rejects.toBeInstanceOf(ValidationError)
+    expect(requestToken).not.toHaveBeenCalled()
   })
 })

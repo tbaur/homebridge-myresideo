@@ -78,4 +78,36 @@ export declare class TokenManager {
     private performRefresh;
     private applyToken;
 }
+/** A token-endpoint requester (overridable in tests). */
+export type RequestToken = (formBody: string, basicAuth: string) => Promise<TokenResponse>;
+export interface AuthorizationCodeExchangeOptions {
+    /** Developer-app API Key (`client_id`). */
+    consumerKey: string;
+    /** Developer-app API Secret. */
+    consumerSecret: string;
+    /** The one-time `code` returned to the redirect URI by the authorize step. */
+    code: string;
+    /** Must byte-for-byte match the redirect URI registered with the developer app. */
+    redirectUri: string;
+    /** Injectable token-endpoint requester (primarily for tests). */
+    requestToken?: RequestToken;
+}
+/**
+ * Build the browser authorize URL for the OAuth2 Authorization Code flow.
+ *
+ * The user opens this URL, signs in, and approves access; Resideo then redirects
+ * to `redirectUri?code=...`. Used by the `get-tokens` helper script.
+ */
+export declare function buildAuthorizeUrl(consumerKey: string, redirectUri: string): string;
+/**
+ * Exchange a one-time authorization `code` for the initial access/refresh token
+ * pair (the `grant_type=authorization_code` leg of the OAuth2 flow). This is the
+ * tested core of the `get-tokens` helper; the returned `refresh_token` is what a
+ * user pastes into the plugin config.
+ *
+ * Error mapping (invalid_grant, invalid_client, etc.) is shared with token
+ * refresh via {@link defaultRequestToken}, so failures surface as the same typed
+ * errors and the raw response body is never logged.
+ */
+export declare function exchangeAuthorizationCode(options: AuthorizationCodeExchangeOptions): Promise<TokenResponse>;
 //# sourceMappingURL=auth.d.ts.map

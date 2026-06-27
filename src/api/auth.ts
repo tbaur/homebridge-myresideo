@@ -25,8 +25,10 @@ import {
   NetworkError,
   RefreshTokenInvalidError,
   TimeoutError,
+  ValidationError,
 } from '../errors'
 import {
+  AUTHORIZE_URL,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_TOKEN_TTL_SEC,
   MAX_TOKEN_REFRESH_ATTEMPTS,
@@ -182,6 +184,77 @@ export class TokenManager {
     this.accessToken = token.access_token
     this.expiresAt = this.now() + ttlSec * 1000 - TOKEN_REFRESH_BUFFER_MS
   }
+}
+
+/** A token-endpoint requester (overridable in tests). */
+export type RequestToken = (formBody: string, basicAuth: string) => Promise<TokenResponse>
+
+export interface AuthorizationCodeExchangeOptions {
+  /** Developer-app API Key (`client_id`). */
+  consumerKey: string
+  /** Developer-app API Secret. */
+  consumerSecret: string
+  /** The one-time `code` returned to the redirect URI by the authorize step. */
+  code: string
+  /** Must byte-for-byte match the redirect URI registered with the developer app. */
+  redirectUri: string
+  /** Injectable token-endpoint requester (primarily for tests). */
+  requestToken?: RequestToken
+}
+
+/**
+ * Build the browser authorize URL for the OAuth2 Authorization Code flow.
+ *
+ * The user opens this URL, signs in, and approves access; Resideo then redirects
+ * to `redirectUri?code=...`. Used by the `get-tokens` helper script.
+ */
+export function buildAuthorizeUrl(consumerKey: string, redirectUri: string): string {
+  if (!consumerKey) {
+    throw new ValidationError('consumerKey is required to build the authorize URL')
+  }
+  if (!redirectUri) {
+    throw new ValidationError('redirectUri is required to build the authorize URL')
+  }
+  const url = new URL(AUTHORIZE_URL)
+  url.searchParams.set('response_type', 'code')
+  url.searchParams.set('client_id', consumerKey)
+  url.searchParams.set('redirect_uri', redirectUri)
+  return url.toString()
+}
+
+/**
+ * Exchange a one-time authorization `code` for the initial access/refresh token
+ * pair (the `grant_type=authorization_code` leg of the OAuth2 flow). This is the
+ * tested core of the `get-tokens` helper; the returned `refresh_token` is what a
+ * user pastes into the plugin config.
+ *
+ * Error mapping (invalid_grant, invalid_client, etc.) is shared with token
+ * refresh via {@link defaultRequestToken}, so failures surface as the same typed
+ * errors and the raw response body is never logged.
+ */
+export async function exchangeAuthorizationCode(
+  options: AuthorizationCodeExchangeOptions,
+): Promise<TokenResponse> {
+  const { consumerKey, consumerSecret, code, redirectUri } = options
+  if (!consumerKey || !consumerSecret) {
+    throw new ValidationError('consumerKey and consumerSecret are required')
+  }
+  if (!code) {
+    throw new ValidationError('Authorization code is required')
+  }
+  if (!redirectUri) {
+    throw new ValidationError('redirectUri is required')
+  }
+
+  const requestToken = options.requestToken ?? defaultRequestToken
+  const basicAuth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64')
+  const formBody = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+  }).toString()
+
+  return requestToken(formBody, basicAuth)
 }
 
 /**
