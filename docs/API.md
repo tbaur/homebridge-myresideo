@@ -1,10 +1,8 @@
 # Resideo / Honeywell Home API Reference
 
-Evaluation of the API as published at <https://developer.honeywellhome.com>,
-scoped to what this plugin needs (OAuth2 + Water Leak Detector).
+Evaluation of the API as published at <https://developer.honeywellhome.com>, scoped to what this plugin needs (OAuth2 + Water Leak Detector).
 
-> **Important:** The base host is **`https://api.honeywellhome.com`**. The older
-> `api.honeywell.com` host is deprecated and must not be used.
+> **Important:** The base host is **`https://api.honeywellhome.com`**. The older `api.honeywell.com` host is deprecated and must not be used.
 
 ## Authentication — OAuth2 Authorization Code flow
 
@@ -57,10 +55,8 @@ grant_type=refresh_token&refresh_token={refreshToken}
 Notes:
 
 - `expires_in` is returned **as a string** (~`1799` seconds / ~30 min).
-- The refresh token **rotates** — a new `refresh_token` may be returned and must
-  be persisted, or the next refresh fails.
-- An expired/invalid refresh token returns **`400 invalid_grant`** → the user
-  must re-link their account.
+- The refresh token **rotates** — a new `refresh_token` may be returned and must be persisted, or the next refresh fails.
+- An expired/invalid refresh token returns **`400 invalid_grant`** → the user must re-link their account.
 
 ## Locations
 
@@ -69,8 +65,7 @@ GET https://api.honeywellhome.com/v2/locations?apikey={apikey}
 Authorization: Bearer {accessToken}
 ```
 
-Returns an array of locations; each has a numeric `locationID` and a `devices`
-array (devices are embedded, so discovery needs only this one call).
+Returns an array of locations; each has a numeric `locationID` and a `devices` array (devices are embedded, so discovery needs only this one call).
 
 ## Water Leak Detector
 
@@ -101,13 +96,8 @@ Authorization: Bearer {accessToken}
 
 ### Freeze detection
 
-The API exposes no dedicated "freeze" boolean. This plugin derives a freeze
-condition by comparing `currentSensorReadings.temperature` against a threshold
-(per-device override → device's `deviceSettings.temp.low.limit` → plugin
-default of 4°C) and exposes it as an optional HomeKit Contact Sensor.
+The API exposes no dedicated "freeze" boolean. This plugin derives a freeze condition by comparing `currentSensorReadings.temperature` against a threshold (per-device override → device's `deviceSettings.temp.low.limit` → plugin default of 4°C) and exposes it as an optional HomeKit Contact Sensor.
 
 ## Endpoints not used by this plugin
 
-`thermostats` and `cameras` device types, and the
-`/devices/waterLeakDetectors/{deviceId}/history` (temperature/humidity history)
-endpoint, are out of scope.
+`thermostats` and `cameras` device types, and the `/devices/waterLeakDetectors/{deviceId}/history` (temperature/humidity history) endpoint, are out of scope.

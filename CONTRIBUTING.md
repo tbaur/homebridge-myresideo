@@ -15,9 +15,7 @@ See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for architecture notes.
 
 ## Commit style
 
-This repo uses [Conventional Commits](https://www.conventionalcommits.org).
-PR titles drive automated releases via release-please, so use prefixes like
-`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
+This repo uses [Conventional Commits](https://www.conventionalcommits.org). PR titles drive automated releases via release-please, so use prefixes like `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
 
 ## Pull requests
 

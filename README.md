@@ -7,8 +7,7 @@
 [![Homebridge](https://img.shields.io/badge/homebridge-%3E%3D1.6.0-purple)](https://homebridge.io)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in
-Apple HomeKit through Homebridge.
+Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in Apple HomeKit through Homebridge.
 
 ## Features
 
@@ -37,8 +36,7 @@ Apple HomeKit through Homebridge.
 
 ### 1. Install
 
-**Homebridge UI** (recommended):
-Plugins → Search `homebridge-myresideo` → Install
+**Homebridge UI** (recommended): Plugins → Search `homebridge-myresideo` → Install
 
 **Command line:**
 ```bash
@@ -47,11 +45,7 @@ npm install -g homebridge-myresideo
 
 ### 2. Get API credentials
 
-Create a developer application at
-[developer.honeywellhome.com](https://developer.honeywellhome.com) to obtain a
-**Consumer Key (API Key)** and **Consumer Secret (API Secret)**, then link your
-account to obtain access/refresh tokens. See [`docs/AUTH.md`](docs/AUTH.md) for
-the full walkthrough.
+Create a developer application at [developer.honeywellhome.com](https://developer.honeywellhome.com) to obtain a **Consumer Key (API Key)** and **Consumer Secret (API Secret)**, then link your account to obtain access/refresh tokens. See [`docs/AUTH.md`](docs/AUTH.md) for the full walkthrough.
 
 ### 3. Configure
 
@@ -121,15 +115,12 @@ Per-device overrides (`options.devices[]`), keyed by `deviceID`:
 
 ## Security
 
-This plugin uses Resideo's OAuth2 flow, so it stores OAuth tokens (not your
-account password) in Homebridge's `config.json`. Because Homebridge keeps plugin
-config in plain text, those tokens live unencrypted on the Homebridge host.
+This plugin uses Resideo's OAuth2 flow, so it stores OAuth tokens (not your account password) in Homebridge's `config.json`. Because Homebridge keeps plugin config in plain text, those tokens live unencrypted on the Homebridge host.
 
 - **Secure the Homebridge host.** Anyone who can read files on it can read your tokens.
 - **Scrub before sharing.** Redact `credentials` from `config.json` before posting logs or backups.
 
-The plugin talks to Resideo over TLS only, redacts tokens and the `apikey` from
-its logs, and never collects analytics. See [`SECURITY.md`](SECURITY.md).
+The plugin talks to Resideo over TLS only, redacts tokens and the `apikey` from its logs, and never collects analytics. See [`SECURITY.md`](SECURITY.md).
 
 ## Requirements
 
@@ -150,5 +141,4 @@ its logs, and never collects analytics. See [`SECURITY.md`](SECURITY.md).
 
 Copyright 2026 tbaur
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for
-details and [`NOTICE`](NOTICE) for third-party attribution.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details and [`NOTICE`](NOTICE) for third-party attribution.

@@ -20,15 +20,12 @@ src/
 
 ## Design principles
 
-- **No runtime dependencies.** Uses Node's native `https`. `homebridge` is a
-  dev-only dependency (types) injected at runtime by the host.
-- **Pure logic is isolated** in `utils.ts` and `errors/` so it is trivially
-  unit-testable; network/HAP code accepts injectable transports for testing.
+- **No runtime dependencies.** Uses Node's native `https`. `homebridge` is a dev-only dependency (types) injected at runtime by the host.
+- **Pure logic is isolated** in `utils.ts` and `errors/` so it is trivially unit-testable; network/HAP code accepts injectable transports for testing.
 - **Strict TypeScript** (`noImplicitAny`, `noUnusedLocals`, etc.).
 
 ## Testing
 
 - Unit tests live in `tests/unit/` and inject fakes (no real network).
-- Integration tests (planned) live in `tests/integration/` and use `nock`.
-- Coverage threshold is 80% on the testable core (HAP adapters and the platform
-  are excluded from unit coverage and covered by integration tests).
+- Integration tests live in `tests/integration/` and use `nock`.
+- Coverage threshold is 80% on the testable core (HAP adapters and the platform are excluded from unit coverage and covered by integration tests).

@@ -1,0 +1,30 @@
+---
+description: Do not hard-wrap prose; use one line per paragraph
+alwaysApply: true
+---
+
+# No Hard Wrapping
+
+Do not hard-wrap prose at a fixed column width. Rely on the editor's soft wrapping instead. This applies to Markdown and other prose/text documents (`*.md`, `*.mdc`, `NOTICE`). `LICENSE` and verbatim third-party license text are exempt (keep legal text as-is). Source-code comments follow normal code style and are out of scope.
+
+## Rules
+
+- Write each paragraph as a **single physical line**. Do not insert newlines mid-sentence or mid-paragraph to fit ~80 columns.
+- Keep one blank line between paragraphs.
+- Each list item is its own line; do not wrap a single item across lines.
+- Never reflow inside fenced code blocks, tables, or YAML frontmatter.
+
+## Examples
+
+❌ BAD — hard-wrapped paragraph:
+
+```markdown
+It integrates directly with the Resideo / Honeywell Home API and focuses
+on doing one device type well: the water leak detector.
+```
+
+✅ GOOD — one line per paragraph (soft-wrapped by the editor):
+
+```markdown
+It integrates directly with the Resideo / Honeywell Home API and focuses on doing one device type well: the water leak detector.
+```

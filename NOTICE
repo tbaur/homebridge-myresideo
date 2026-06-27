@@ -7,8 +7,7 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 Attribution
 ------------------------------------------------------------------------------
 
-This project was inspired by, and originally derived understanding from, the
-homebridge-resideo plugin:
+This project was inspired by, and originally derived understanding from, the homebridge-resideo plugin:
 
     homebridge-resideo
     ISC License
@@ -26,6 +25,4 @@ homebridge-resideo plugin:
     ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
     IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-This is an independent, ground-up reimplementation written directly against the
-Resideo / Honeywell Home API (https://developer.honeywellhome.com). It does not
-copy source code from the original project.
+This is an independent, ground-up reimplementation written directly against the Resideo / Honeywell Home API (https://developer.honeywellhome.com). It does not copy source code from the original project.
