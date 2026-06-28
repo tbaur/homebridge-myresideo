@@ -110,25 +110,31 @@ function captureAuthorizationCode(redirectUri, authorizeUrl) {
 
       const error = requestUrl.searchParams.get('error')
       const code = requestUrl.searchParams.get('code')
-      const finish = (statusMessage, ok) => {
-        res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html' })
+      // The response page is intentionally STATIC: no request-derived value is
+      // ever reflected into the HTML (which would be an XSS vector). Any error
+      // detail is surfaced on the terminal via the rejected promise instead.
+      const finish = (ok) => {
+        res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/html; charset=utf-8' })
+        const heading = ok ? 'Authorization complete' : 'Authorization failed'
+        const detail = ok
+          ? 'Tokens are being exchanged in your terminal.'
+          : 'See the terminal for details. You can close this tab.'
         res.end('<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:2rem">'
-          + `<h2>${ok ? 'Authorization complete' : 'Authorization failed'}</h2>`
-          + `<p>${statusMessage}</p><p>You can close this tab and return to the terminal.</p></body>`)
+          + `<h2>${heading}</h2><p>${detail}</p></body>`)
         server.close()
       }
 
       if (error) {
-        finish(`Resideo returned an error: ${error}`, false)
+        finish(false)
         rejectPromise(new Error(`Authorization was denied or failed: ${error}`))
         return
       }
       if (!code) {
-        finish('No authorization code was present in the redirect.', false)
+        finish(false)
         rejectPromise(new Error('Redirect did not include an authorization code'))
         return
       }
-      finish('Tokens are being exchanged in your terminal.', true)
+      finish(true)
       resolvePromise(code)
     })
 
