@@ -39,7 +39,7 @@ scripts/
 This plugin talks to a **poll-based** REST API (Honeywell Home exposes no documented realtime push for leak detectors), so the resilience surface is deliberately smaller than a WebSocket-driven plugin:
 
 - **Token lifecycle** — a config-supplied access token is used optimistically once, then access tokens refresh ahead of expiry and on `401`; concurrent refreshes are de-duplicated (single-flight); rotated refresh tokens are persisted back to `config.json` atomically (temp file + rename).
-- **Transient-error retry** — network errors, timeouts, and `5xx` responses retry with exponential backoff; this applies to both API calls and the token-refresh request. Auth (`401`) and `4xx` (except 429) do not retry.
+- **Transient-error retry** — network errors, timeouts, `5xx`, and `429` responses retry with jittered exponential backoff (a `429` `Retry-After` header is honored when present); this applies to both API calls and the token-refresh request. `401` triggers one refresh-and-retry; `403` (`ForbiddenError`) and other `4xx` do not retry.
 - **Bounded timeouts** — every request, including token refresh, has a timeout so a stalled connection cannot wedge the poll loop.
 - **Self-healing discovery** — if initial discovery fails on a transient error, it retries with capped exponential backoff (15s → 5min). Non-recoverable errors (invalid refresh token, rejected credentials) are not retried.
 - **Bounded-concurrency polling** — devices are polled up to `POLL_DEVICE_CONCURRENCY` (4) at a time, with an in-flight guard that skips a tick if the previous cycle is still running.
@@ -60,7 +60,7 @@ npm run lint           # eslint
 npm test               # jest with coverage (NODE_ENV=test)
 npm run test:unit      # unit tests only
 npm run test:integration   # nock-backed integration tests
-npm run get-tokens -- --key <KEY> --secret <SECRET>   # obtain initial OAuth2 tokens
+npm run get-tokens         # obtain initial OAuth2 tokens (prompts for key/secret; see docs/AUTH.md)
 ```
 
 ## Adding new device support

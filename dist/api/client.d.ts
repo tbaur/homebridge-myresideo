@@ -11,17 +11,16 @@
  * enforces a timeout, retries transient failures with backoff, and performs a
  * single token-refresh-and-retry on 401.
  */
-import type { ResideoLocation, WaterLeakDetector } from '../types';
+import type { PluginLogger, ResideoLocation, WaterLeakDetector } from '../types';
 import type { TokenManager } from './auth';
-export interface ClientLogger {
-    debug?: (message: string) => void;
-    warn?: (message: string) => void;
-    error?: (message: string) => void;
-}
+/** Minimal logger surface; any subset of methods may be provided. */
+export type ClientLogger = PluginLogger;
 /** A raw HTTP response from the low-level transport. */
 export interface RawResponse {
     status: number;
     body: string;
+    /** Response headers (lower-cased keys), used to honor `Retry-After` on 429s. */
+    headers?: Record<string, string | string[] | undefined>;
 }
 export interface ApiClientOptions {
     tokenManager: TokenManager;

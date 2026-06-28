@@ -30,7 +30,7 @@ class ResideoApiClient {
         this.tokenManager = options.tokenManager;
         this.apikey = options.apikey;
         this.timeoutMs = options.timeoutMs ?? settings_1.DEFAULT_REQUEST_TIMEOUT_MS;
-        this.maxRetryAttempts = options.maxRetryAttempts ?? 3;
+        this.maxRetryAttempts = options.maxRetryAttempts ?? settings_1.MAX_API_RETRY_ATTEMPTS;
         this.logger = options.logger;
         this.transport = options.transport ?? defaultTransport;
     }
@@ -64,6 +64,9 @@ class ResideoApiClient {
         let lastError;
         let refreshedOnAuth = false;
         for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt++) {
+            // When the server sends a Retry-After on a 429, honor it instead of the
+            // generic backoff for this iteration only.
+            let waitMs;
             try {
                 const accessToken = await this.tokenManager.getAccessToken();
                 const raw = await this.transport(url, accessToken, this.timeoutMs);
@@ -81,6 +84,9 @@ class ResideoApiClient {
                 if (!error.isRetryable) {
                     throw error;
                 }
+                if (error instanceof errors_1.RateLimitError) {
+                    waitMs = parseRetryAfterMs(raw.headers?.['retry-after']);
+                }
                 lastError = error;
             }
             catch (err) {
@@ -94,7 +100,7 @@ class ResideoApiClient {
                 lastError = err;
             }
             if (attempt < this.maxRetryAttempts) {
-                await (0, backoff_1.delay)((0, backoff_1.backoffMs)(attempt));
+                await (0, backoff_1.delay)(waitMs ?? (0, backoff_1.backoffMs)(attempt));
             }
         }
         throw lastError instanceof Error ? lastError : new errors_1.NetworkError('Request failed after retries');
@@ -109,6 +115,29 @@ class ResideoApiClient {
     }
 }
 exports.ResideoApiClient = ResideoApiClient;
+/**
+ * Parse an HTTP `Retry-After` header into milliseconds. Supports the
+ * delta-seconds and HTTP-date forms, clamps to a sane maximum, and returns
+ * `undefined` when the header is absent or unparseable (callers fall back to
+ * exponential backoff).
+ */
+function parseRetryAfterMs(header) {
+    const value = Array.isArray(header) ? header[0] : header;
+    if (!value) {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    const seconds = Number(trimmed);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+        return Math.min(seconds * 1000, settings_1.MAX_RETRY_AFTER_MS);
+    }
+    const dateMs = Date.parse(trimmed);
+    if (!Number.isNaN(dateMs)) {
+        const deltaMs = dateMs - Date.now();
+        return Math.min(Math.max(deltaMs, 0), settings_1.MAX_RETRY_AFTER_MS);
+    }
+    return undefined;
+}
 /** Strip the apikey from a URL before logging. */
 function redact(url) {
     try {
@@ -136,7 +165,11 @@ function defaultTransport(url, accessToken, timeoutMs) {
         }, (res) => {
             const chunks = [];
             res.on('data', chunk => chunks.push(node_buffer_1.Buffer.isBuffer(chunk) ? chunk : node_buffer_1.Buffer.from(chunk)));
-            res.on('end', () => resolve({ status: res.statusCode ?? 0, body: node_buffer_1.Buffer.concat(chunks).toString('utf8') }));
+            res.on('end', () => resolve({
+                status: res.statusCode ?? 0,
+                body: node_buffer_1.Buffer.concat(chunks).toString('utf8'),
+                headers: res.headers,
+            }));
         });
         req.on('timeout', () => {
             req.destroy();

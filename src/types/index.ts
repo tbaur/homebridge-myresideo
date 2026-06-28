@@ -12,6 +12,16 @@
 import type { PlatformConfig } from 'homebridge'
 
 /**
+ * Minimal logger surface shared by the API/auth layers. Any subset of methods
+ * may be provided; the Homebridge `Logging` object satisfies it.
+ */
+export interface PluginLogger {
+  debug?: (message: string) => void
+  warn?: (message: string) => void
+  error?: (message: string) => void
+}
+
+/**
  * OAuth2 credentials and tokens. `consumerKey` / `consumerSecret` are the
  * developer-app API Key / Secret. `accessToken` / `refreshToken` are obtained
  * via the Authorization Code flow ("Link Account").

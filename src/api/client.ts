@@ -15,27 +15,35 @@
 import { Buffer } from 'node:buffer'
 import { request as httpsRequest } from 'node:https'
 
-import { AuthenticationError, ApiParseError, createApiError, NetworkError, TimeoutError } from '../errors'
+import {
+  AuthenticationError,
+  ApiParseError,
+  createApiError,
+  NetworkError,
+  RateLimitError,
+  TimeoutError,
+} from '../errors'
 import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEVICES_URL,
   LOCATIONS_URL,
+  MAX_API_RETRY_ATTEMPTS,
+  MAX_RETRY_AFTER_MS,
   WATER_LEAK_DETECTOR_TYPE,
 } from '../settings'
-import type { ResideoLocation, WaterLeakDetector } from '../types'
+import type { PluginLogger, ResideoLocation, WaterLeakDetector } from '../types'
 import { backoffMs, delay } from '../utils/backoff'
 import type { TokenManager } from './auth'
 
-export interface ClientLogger {
-  debug?: (message: string) => void
-  warn?: (message: string) => void
-  error?: (message: string) => void
-}
+/** Minimal logger surface; any subset of methods may be provided. */
+export type ClientLogger = PluginLogger
 
 /** A raw HTTP response from the low-level transport. */
 export interface RawResponse {
   status: number
   body: string
+  /** Response headers (lower-cased keys), used to honor `Retry-After` on 429s. */
+  headers?: Record<string, string | string[] | undefined>
 }
 
 export interface ApiClientOptions {
@@ -61,7 +69,7 @@ export class ResideoApiClient {
     this.tokenManager = options.tokenManager
     this.apikey = options.apikey
     this.timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
-    this.maxRetryAttempts = options.maxRetryAttempts ?? 3
+    this.maxRetryAttempts = options.maxRetryAttempts ?? MAX_API_RETRY_ATTEMPTS
     this.logger = options.logger
     this.transport = options.transport ?? defaultTransport
   }
@@ -101,6 +109,9 @@ export class ResideoApiClient {
     let refreshedOnAuth = false
 
     for (let attempt = 1; attempt <= this.maxRetryAttempts; attempt++) {
+      // When the server sends a Retry-After on a 429, honor it instead of the
+      // generic backoff for this iteration only.
+      let waitMs: number | undefined
       try {
         const accessToken = await this.tokenManager.getAccessToken()
         const raw = await this.transport(url, accessToken, this.timeoutMs)
@@ -122,6 +133,9 @@ export class ResideoApiClient {
         if (!error.isRetryable) {
           throw error
         }
+        if (error instanceof RateLimitError) {
+          waitMs = parseRetryAfterMs(raw.headers?.['retry-after'])
+        }
         lastError = error
       } catch (err) {
         if (err instanceof AuthenticationError) {
@@ -135,7 +149,7 @@ export class ResideoApiClient {
       }
 
       if (attempt < this.maxRetryAttempts) {
-        await delay(backoffMs(attempt))
+        await delay(waitMs ?? backoffMs(attempt))
       }
     }
 
@@ -149,6 +163,30 @@ export class ResideoApiClient {
       throw new ApiParseError(`Failed to parse response from ${redact(url)}`, { cause: err as Error })
     }
   }
+}
+
+/**
+ * Parse an HTTP `Retry-After` header into milliseconds. Supports the
+ * delta-seconds and HTTP-date forms, clamps to a sane maximum, and returns
+ * `undefined` when the header is absent or unparseable (callers fall back to
+ * exponential backoff).
+ */
+function parseRetryAfterMs(header: string | string[] | undefined): number | undefined {
+  const value = Array.isArray(header) ? header[0] : header
+  if (!value) {
+    return undefined
+  }
+  const trimmed = value.trim()
+  const seconds = Number(trimmed)
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS)
+  }
+  const dateMs = Date.parse(trimmed)
+  if (!Number.isNaN(dateMs)) {
+    const deltaMs = dateMs - Date.now()
+    return Math.min(Math.max(deltaMs, 0), MAX_RETRY_AFTER_MS)
+  }
+  return undefined
 }
 
 /** Strip the apikey from a URL before logging. */
@@ -181,7 +219,11 @@ function defaultTransport(url: string, accessToken: string, timeoutMs: number): 
       (res) => {
         const chunks: Buffer[] = []
         res.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }))
+        res.on('end', () => resolve({
+          status: res.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString('utf8'),
+          headers: res.headers,
+        }))
       },
     )
     req.on('timeout', () => {

@@ -18,19 +18,25 @@ From a clone of this repository:
 
 ```bash
 npm install            # also builds dist/ via the prepare script
-npm run get-tokens -- --key <CONSUMER_KEY> --secret <CONSUMER_SECRET>
+npm run get-tokens     # prompts for your Consumer Key and Secret
 ```
 
-If you registered a redirect URI other than the default, pass it explicitly:
+Run with no flags and the script prompts for the Consumer Key and Secret interactively — the recommended approach, since it keeps your secret out of your shell history and process list. Alternatively, supply them via environment variables:
 
 ```bash
-npm run get-tokens -- \
-  --key <CONSUMER_KEY> \
-  --secret <CONSUMER_SECRET> \
-  --redirect-uri http://localhost:8581/oauth/callback
+export RESIDEO_CONSUMER_KEY=<CONSUMER_KEY>
+export RESIDEO_CONSUMER_SECRET=<CONSUMER_SECRET>
+npm run get-tokens
 ```
 
-Credentials and the redirect URI may also be supplied via the `RESIDEO_CONSUMER_KEY`, `RESIDEO_CONSUMER_SECRET`, and `RESIDEO_REDIRECT_URI` environment variables instead of flags. The redirect URI must point at `localhost` or `127.0.0.1` so the script can receive the redirect, and must match the value registered on your developer application exactly. The script prints your tokens to the terminal only — nothing is written to disk or sent anywhere except Resideo's token endpoint.
+Flags are also accepted (`--key`, `--secret`, `--redirect-uri`), but **avoid passing the secret as a flag on a shared host** — command-line arguments are visible to other local users via `ps`. If you registered a redirect URI other than the default, pass it explicitly (the redirect URI is not sensitive):
+
+```bash
+RESIDEO_CONSUMER_KEY=<CONSUMER_KEY> RESIDEO_CONSUMER_SECRET=<CONSUMER_SECRET> \
+  npm run get-tokens -- --redirect-uri http://localhost:8581/oauth/callback
+```
+
+The redirect URI must point at `localhost` or `127.0.0.1` so the script can receive the redirect, and must match the value registered on your developer application exactly. The script prints your tokens to the terminal only — nothing is written to disk or sent anywhere except Resideo's token endpoint.
 
 ## How the plugin manages tokens
 

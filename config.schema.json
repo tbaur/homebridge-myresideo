@@ -54,8 +54,8 @@
           "freezeThresholdCelsius": {
             "title": "Default Freeze Threshold (°C)",
             "type": "number",
-            "default": 4,
-            "description": "Temperature at or below which the optional freeze sensor trips, unless overridden per-device."
+            "placeholder": 4,
+            "description": "Optional. Temperature at or below which the optional freeze sensor trips. Leave blank to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence."
           },
           "devices": {
             "type": "array",

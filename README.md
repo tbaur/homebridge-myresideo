@@ -12,7 +12,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 ## Features
 
 ### Device Support
-- **Automatic Discovery** — Finds every water leak detector across all locations on your account, and removes detectors that disappear from your account
+- **Automatic Discovery** — At startup, finds every water leak detector across all locations on your account, and removes detectors that disappear from your account (restart Homebridge to pick up newly-added detectors)
 - **Leak Detection** — HomeKit Leak Sensor that reflects the water-present state on each polling cycle (default every 120s; see [polling](#configuration-options))
 - **Temperature & Humidity** — Exposed as standard HomeKit sensors (each can be hidden); a missing reading is flagged as a fault rather than shown as a stale value
 - **Battery** — Battery level plus low-battery status
@@ -28,8 +28,8 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Secret Hygiene** — Credentials are never logged; the `apikey` is redacted from any logged URLs
 
 ### Quality
-- **Strict TypeScript** — `noImplicitAny` and the full strict family enabled
-- **Tested Core** — Jest suite with ≥80% coverage on the API/auth/util layers (currently ~96%)
+- **Strict TypeScript** — `strict` mode (`noImplicitAny`, `strictNullChecks`, no unused locals/params, no implicit returns, and more)
+- **Tested Core** — Jest suite with a ≥80% coverage gate (currently ~95% lines)
 - **CI on Every PR** — Build, lint, and test across Node 20/22/24, plus a dependency audit
 - **No Analytics** — Zero tracking or data collection
 
@@ -48,7 +48,7 @@ npm install -g homebridge-myresideo
 
 Create a developer application at [developer.honeywellhome.com](https://developer.honeywellhome.com) to obtain a **Consumer Key (API Key)** and **Consumer Secret (API Secret)**.
 
-> **Manual token step required.** A built-in account-linking UI is on the [roadmap](docs/ROADMAP.md) but not available yet. For now, obtain the initial OAuth2 `refreshToken` (and `accessToken`) with the included helper script and paste them into the config. From a clone of this repo, run `npm run build && npm run get-tokens -- --key <CONSUMER_KEY> --secret <CONSUMER_SECRET>`; it opens your browser, captures the redirect, and prints a ready-to-paste `credentials` block. The full walkthrough — including registering the redirect URI — is in [`docs/AUTH.md`](docs/AUTH.md); the underlying API is documented in [`docs/API.md`](docs/API.md).
+> **Manual token step required.** A built-in account-linking UI is on the [roadmap](docs/ROADMAP.md) but not available yet. For now, obtain the initial OAuth2 `refreshToken` (and `accessToken`) with the included helper script and paste them into the config. From a clone of this repo, run `npm install && npm run get-tokens` and enter your Consumer Key/Secret when prompted (this keeps the secret out of your shell history); it opens your browser, captures the redirect, and prints a ready-to-paste `credentials` block. The full walkthrough — including registering the redirect URI and passing credentials via env vars — is in [`docs/AUTH.md`](docs/AUTH.md); the underlying API is documented in [`docs/API.md`](docs/API.md).
 
 ### 3. Configure
 
@@ -67,8 +67,7 @@ Use the Homebridge UI (recommended) or add the platform to your config:
         "refreshToken": "obtained-when-linking"
       },
       "options": {
-        "refreshRate": 120,
-        "freezeThresholdCelsius": 4
+        "refreshRate": 120
       }
     }
   ]
@@ -77,7 +76,7 @@ Use the Homebridge UI (recommended) or add the platform to your config:
 
 ### 4. Restart Homebridge
 
-Your detectors appear in the Home app automatically.
+Your detectors are discovered at startup and appear in the Home app automatically. If you add a new detector to your Honeywell Home account later, restart Homebridge to pick it up.
 
 ## Supported Devices
 
@@ -95,7 +94,7 @@ Your detectors appear in the Home app automatically.
 | `credentials.refreshToken` | ✓ | OAuth2 refresh token (set when linking your account) |
 | `credentials.accessToken` | | OAuth2 access token (set when linking your account) |
 | `options.refreshRate` | | Seconds between status polls (default: 120, minimum: 30) |
-| `options.freezeThresholdCelsius` | | Default freeze threshold in °C (default: 4) |
+| `options.freezeThresholdCelsius` | | Default freeze threshold in °C. Leave unset to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence. |
 | `options.devices[]` | | Per-device overrides (see below) |
 
 Per-device overrides (`options.devices[]`), keyed by `deviceID`:

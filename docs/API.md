@@ -36,8 +36,8 @@ Response:
 
 ```json
 {
-  "access_token": "k8sbPR4is2C7ipTYgEbi8fe470mp",
-  "refresh_token": "dQJiREMfaHhDBoGohIj7JEpIOYYk9Jif",
+  "access_token": "<ACCESS_TOKEN>",
+  "refresh_token": "<REFRESH_TOKEN>",
   "expires_in": "1799"
 }
 ```
@@ -89,9 +89,9 @@ Authorization: Bearer {accessToken}
 | `currentSensorReadings.temperature` | number | Celsius. |
 | `currentSensorReadings.humidity` | number | Percentage. |
 | `batteryRemaining` | integer | Battery percent. |
-| `hasDeviceCheckedIn` | boolean | Recently checked in (drives StatusActive). |
-| `isDeviceOffline` / `isAlive` | boolean | Connectivity. |
-| `currentAlarms[]` | array | e.g. `HighTemperature`, `HighHumidity`, `DeviceOffline`. |
+| `hasDeviceCheckedIn` | boolean | Recently checked in. |
+| `isDeviceOffline` / `isAlive` | boolean | Connectivity. `StatusActive` is the AND of `isAlive !== false`, `isDeviceOffline !== true`, and `hasDeviceCheckedIn !== false`. |
+| `currentAlarms[]` | array | Active alarms. Per-entry shape is **unverified** (empty on all observed healthy devices); example values like `HighTemperature`/`HighHumidity`/`DeviceOffline` are illustrative. |
 | `deviceSettings.temp.low.limit` | number | Configured low-temp alert limit (Celsius) — used as the default freeze threshold. |
 
 ### Freeze detection

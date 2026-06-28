@@ -89,6 +89,11 @@ class ResideoPlatform {
         }
         try {
             const locations = await this.client.getLocations();
+            // The await above can span a shutdown; if so, stop before wiring anything
+            // up (registering accessories or starting a poll timer that nothing clears).
+            if (this.stopped) {
+                return;
+            }
             const detectors = [];
             for (const location of locations) {
                 for (const device of location.devices ?? []) {
@@ -184,6 +189,9 @@ class ResideoPlatform {
         return override ?? { deviceID };
     }
     startPolling() {
+        if (this.stopped) {
+            return;
+        }
         if (this.pollTimer) {
             clearInterval(this.pollTimer);
         }
@@ -193,6 +201,9 @@ class ResideoPlatform {
     }
     /** Run one poll cycle, skipping if a previous cycle is still in flight. */
     async runPollCycle() {
+        if (this.stopped) {
+            return;
+        }
         if (this.isPolling) {
             this.log.debug('Skipping poll tick; previous cycle still running');
             return;
@@ -210,6 +221,9 @@ class ResideoPlatform {
         if (!this.client) {
             return;
         }
+        // Snapshot the device IDs that currently have a known location. Each worker
+        // re-checks per device below, since pruning/discovery can mutate the maps
+        // while a cycle is in flight.
         const deviceIds = [...this.handlers.keys()].filter(id => this.locationByDevice.has(id));
         const workerCount = Math.min(settings_1.POLL_DEVICE_CONCURRENCY, deviceIds.length);
         if (workerCount === 0) {
@@ -261,10 +275,10 @@ class ResideoPlatform {
             const block = blocks.find(p => p.name === this.config.name) ?? blocks[0];
             if (block?.credentials) {
                 block.credentials.refreshToken = newRefreshToken;
-                const tempPath = `${configPath}.${process.pid}.tmp`;
+                const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
                 await node_fs_1.promises.writeFile(tempPath, JSON.stringify(parsed, null, 4), 'utf8');
                 await node_fs_1.promises.rename(tempPath, configPath);
-                this.log.debug('Persisted rotated refresh token to config.json');
+                this.log.debug(`Persisted rotated refresh token to config.json (${(0, utils_1.maskToken)(newRefreshToken)})`);
             }
         }
         catch (err) {

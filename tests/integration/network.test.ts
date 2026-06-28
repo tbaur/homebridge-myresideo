@@ -12,7 +12,7 @@ import nock from 'nock'
 
 import { TokenManager } from '../../src/api/auth'
 import { ResideoApiClient } from '../../src/api/client'
-import { ConfigurationError, NetworkError, RefreshTokenInvalidError } from '../../src/errors'
+import { ConfigurationError, NetworkError, RefreshTokenInvalidError, TimeoutError } from '../../src/errors'
 import { API_BASE_URL } from '../../src/settings'
 import type { TokenManager as TokenManagerType } from '../../src/api/auth'
 
@@ -100,6 +100,18 @@ describe('TokenManager default requester (native https)', () => {
     })
     await expect(manager.getAccessToken()).rejects.toBeInstanceOf(NetworkError)
   })
+
+  it('maps a socket-level failure to a NetworkError', async () => {
+    nock(BASE).post('/oauth2/token').replyWithError({ code: 'ECONNRESET', message: 'reset' })
+
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'r0',
+      maxRefreshAttempts: 1,
+    })
+    await expect(manager.getAccessToken()).rejects.toBeInstanceOf(NetworkError)
+  })
 })
 
 describe('ResideoApiClient default transport (native https)', () => {
@@ -122,5 +134,49 @@ describe('ResideoApiClient default transport (native https)', () => {
     const client = new ResideoApiClient({ tokenManager: stubTokenManager(), apikey: 'my-key' })
     const device = await client.getWaterLeakDetector('abc-123', 5555)
     expect(device.waterPresent).toBe(true)
+  })
+
+  it('raises TimeoutError when the socket stalls past the timeout', async () => {
+    nock(BASE)
+      .get('/v2/locations')
+      .query({ apikey: 'my-key' })
+      .delayConnection(300)
+      .reply(200, [])
+
+    const client = new ResideoApiClient({
+      tokenManager: stubTokenManager(),
+      apikey: 'my-key',
+      timeoutMs: 50,
+      maxRetryAttempts: 1,
+    })
+    await expect(client.getLocations()).rejects.toBeInstanceOf(TimeoutError)
+  })
+
+  it('raises NetworkError on a socket-level failure', async () => {
+    nock(BASE)
+      .get('/v2/locations')
+      .query({ apikey: 'my-key' })
+      .replyWithError({ code: 'ECONNRESET', message: 'reset' })
+
+    const client = new ResideoApiClient({
+      tokenManager: stubTokenManager(),
+      apikey: 'my-key',
+      maxRetryAttempts: 1,
+    })
+    await expect(client.getLocations()).rejects.toBeInstanceOf(NetworkError)
+  })
+
+  it('honors a Retry-After header on 429 and then succeeds', async () => {
+    nock(BASE)
+      .get('/v2/locations')
+      .query({ apikey: 'my-key' })
+      .reply(429, 'slow down', { 'Retry-After': '0' })
+    nock(BASE)
+      .get('/v2/locations')
+      .query({ apikey: 'my-key' })
+      .reply(200, [{ locationID: 7, devices: [] }])
+
+    const client = new ResideoApiClient({ tokenManager: stubTokenManager(), apikey: 'my-key' })
+    await expect(client.getLocations()).resolves.toEqual([{ locationID: 7, devices: [] }])
   })
 })

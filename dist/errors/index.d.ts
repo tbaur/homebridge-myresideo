@@ -53,6 +53,16 @@ export declare class RefreshTokenInvalidError extends AuthenticationError {
         cause?: Error;
     });
 }
+/**
+ * Authenticated but not authorized (403). Distinct from {@link AuthenticationError}
+ * (401) because refreshing the token cannot fix a permissions problem, so the
+ * client must not waste a refresh-and-retry on it.
+ */
+export declare class ForbiddenError extends ResideoError {
+    readonly code = "FORBIDDEN_ERROR";
+    readonly isRetryable = false;
+    readonly httpStatus = 403;
+}
 /** Network-level failure (DNS, connection reset, etc.). Safe to retry. */
 export declare class NetworkError extends ResideoError {
     readonly code = "NETWORK_ERROR";

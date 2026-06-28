@@ -61,15 +61,24 @@ export class LeakSensorAccessory {
 
     this.batteryService = this.accessory.getService(Service.Battery)
       ?? this.accessory.addService(Service.Battery)
+    // These detectors are battery-powered and cannot be charged; declaring it
+    // avoids HomeKit showing a misleading "not charging/charging" default.
+    this.batteryService.setCharacteristic(
+      Characteristic.ChargingState,
+      Characteristic.ChargingState.NOT_CHARGEABLE,
+    )
 
     if (!options.hideTemperatureSensor) {
       this.temperatureService = this.accessory.getService(Service.TemperatureSensor)
         ?? this.accessory.addService(Service.TemperatureSensor)
+      // Distinct service names so broken-out tiles aren't all the accessory name.
+      this.temperatureService.setCharacteristic(Characteristic.Name, `${this.displayName} Temperature`)
     }
 
     if (!options.hideHumiditySensor) {
       this.humidityService = this.accessory.getService(Service.HumiditySensor)
         ?? this.accessory.addService(Service.HumiditySensor)
+      this.humidityService.setCharacteristic(Characteristic.Name, `${this.displayName} Humidity`)
     }
 
     if (options.enableFreezeSensor) {

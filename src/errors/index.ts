@@ -77,6 +77,17 @@ export class RefreshTokenInvalidError extends AuthenticationError {
   }
 }
 
+/**
+ * Authenticated but not authorized (403). Distinct from {@link AuthenticationError}
+ * (401) because refreshing the token cannot fix a permissions problem, so the
+ * client must not waste a refresh-and-retry on it.
+ */
+export class ForbiddenError extends ResideoError {
+  readonly code = 'FORBIDDEN_ERROR'
+  readonly isRetryable = false
+  override readonly httpStatus = 403
+}
+
 /** Network-level failure (DNS, connection reset, etc.). Safe to retry. */
 export class NetworkError extends ResideoError {
   readonly code = 'NETWORK_ERROR'
@@ -119,8 +130,11 @@ export class ApiParseError extends ResideoError {
  * Map an HTTP status code to the appropriate error type.
  */
 export function createApiError(status: number, message: string, cause?: Error): ResideoError {
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     return new AuthenticationError(message, cause ? { cause } : undefined)
+  }
+  if (status === 403) {
+    return new ForbiddenError(message, cause ? { cause } : undefined)
   }
   if (status === 429) {
     return new RateLimitError(message, cause ? { cause } : undefined)

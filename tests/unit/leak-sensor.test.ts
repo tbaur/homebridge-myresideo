@@ -27,6 +27,7 @@ const Characteristic = {
   Name: mkChar('Name'),
   StatusActive: mkChar('StatusActive'),
   BatteryLevel: mkChar('BatteryLevel'),
+  ChargingState: mkChar('ChargingState', { NOT_CHARGEABLE: 2, NOT_CHARGING: 0, CHARGING: 1 }),
   CurrentTemperature: mkChar('CurrentTemperature'),
   CurrentRelativeHumidity: mkChar('CurrentRelativeHumidity'),
   LeakDetected: mkChar('LeakDetected', { LEAK_DETECTED: 1, LEAK_NOT_DETECTED: 0 }),

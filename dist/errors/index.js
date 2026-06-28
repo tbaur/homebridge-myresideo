@@ -8,7 +8,7 @@
  * @fileoverview Structured error hierarchy for predictable error handling.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ApiParseError = exports.ApiResponseError = exports.RateLimitError = exports.TimeoutError = exports.NetworkError = exports.RefreshTokenInvalidError = exports.AuthenticationError = exports.ValidationError = exports.ConfigurationError = exports.ResideoError = void 0;
+exports.ApiParseError = exports.ApiResponseError = exports.RateLimitError = exports.TimeoutError = exports.NetworkError = exports.ForbiddenError = exports.RefreshTokenInvalidError = exports.AuthenticationError = exports.ValidationError = exports.ConfigurationError = exports.ResideoError = void 0;
 exports.createApiError = createApiError;
 /**
  * Base class for all plugin errors. Carries a stable machine-readable `code`
@@ -74,6 +74,17 @@ class RefreshTokenInvalidError extends AuthenticationError {
     }
 }
 exports.RefreshTokenInvalidError = RefreshTokenInvalidError;
+/**
+ * Authenticated but not authorized (403). Distinct from {@link AuthenticationError}
+ * (401) because refreshing the token cannot fix a permissions problem, so the
+ * client must not waste a refresh-and-retry on it.
+ */
+class ForbiddenError extends ResideoError {
+    code = 'FORBIDDEN_ERROR';
+    isRetryable = false;
+    httpStatus = 403;
+}
+exports.ForbiddenError = ForbiddenError;
 /** Network-level failure (DNS, connection reset, etc.). Safe to retry. */
 class NetworkError extends ResideoError {
     code = 'NETWORK_ERROR';
@@ -115,8 +126,11 @@ exports.ApiParseError = ApiParseError;
  * Map an HTTP status code to the appropriate error type.
  */
 function createApiError(status, message, cause) {
-    if (status === 401 || status === 403) {
+    if (status === 401) {
         return new AuthenticationError(message, cause ? { cause } : undefined);
+    }
+    if (status === 403) {
+        return new ForbiddenError(message, cause ? { cause } : undefined);
     }
     if (status === 429) {
         return new RateLimitError(message, cause ? { cause } : undefined);

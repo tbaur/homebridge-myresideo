@@ -4,7 +4,7 @@
 
 ## Core Features
 
-- ✅ Automatic device discovery from the Resideo / Honeywell Home cloud
+- ✅ Automatic device discovery from the Resideo / Honeywell Home cloud at startup (restart Homebridge to pick up newly-added detectors)
 - ✅ Stale-accessory pruning (detectors removed from the account are unregistered)
 - ✅ Water leak detection exposed as a HomeKit Leak Sensor
 - ✅ Temperature and humidity readings exposed as HomeKit sensors (optional, per device)
@@ -49,7 +49,7 @@ homebridge-myresideo/
 
 ## Quality
 
-- Unit and integration test suites with an 80%+ coverage gate across the whole `src/` tree (statements, branches, functions, and lines)
+- Unit and integration test suites with an 80%+ coverage gate (statements, branches, functions, and lines) across `src/`, excluding re-export `index.ts` barrels and the static `settings.ts` constants
 - Platform and accessory layers unit-tested with a mocked HAP surface
 - ESLint with zero warnings
 - TypeScript strict mode — production and tests compile under the same strict settings

@@ -56,6 +56,12 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 /** Maximum number of token-refresh attempts before surfacing the failure. */
 export const MAX_TOKEN_REFRESH_ATTEMPTS = 3
 
+/** Maximum number of attempts for a single API request before surfacing the failure. */
+export const MAX_API_RETRY_ATTEMPTS = 3
+
+/** Upper bound on how long a server-supplied `Retry-After` can pause a retry. */
+export const MAX_RETRY_AFTER_MS = 60_000
+
 /**
  * Number of devices polled concurrently each cycle. Keeps API fan-out bounded
  * while still parallelizing so cycle time does not grow linearly with devices.
@@ -80,6 +86,14 @@ export const TOKEN_REFRESH_BUFFER_MS = 60_000
 
 /** Fallback access-token lifetime (seconds) when the API omits `expires_in`. */
 export const DEFAULT_TOKEN_TTL_SEC = 1799
+
+/**
+ * Floor on the usable lifetime of an access token after subtracting the refresh
+ * buffer. Guards against a pathologically short `expires_in` (≤ the buffer)
+ * causing every {@link getAccessToken} call to treat a brand-new token as
+ * already expired and stampede the auth endpoint.
+ */
+export const MIN_TOKEN_LIFETIME_MS = 30_000
 
 /** Battery percentage at or below which HomeKit reports "low battery". */
 export const LOW_BATTERY_THRESHOLD = 15

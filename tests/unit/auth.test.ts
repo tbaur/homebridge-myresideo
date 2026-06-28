@@ -54,6 +54,25 @@ describe('TokenManager', () => {
     expect(requestToken).toHaveBeenCalledTimes(2)
   })
 
+  it('floors the token lifetime so a tiny expires_in does not refresh on every call', async () => {
+    let clock = 1_000_000
+    // expires_in (10s) is below the 60s refresh buffer; without a floor the
+    // token would be treated as already expired and refreshed on every call.
+    const requestToken = jest.fn().mockResolvedValue(makeTokenResponse({ expires_in: '10' }))
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'refresh-0',
+      now: () => clock,
+      requestToken,
+    })
+
+    await manager.getAccessToken()
+    clock += 1_000 // 1s later, still within the floored lifetime
+    await manager.getAccessToken()
+    expect(requestToken).toHaveBeenCalledTimes(1)
+  })
+
   it('collapses concurrent refreshes into a single request', async () => {
     let resolveToken: (t: TokenResponse) => void = () => {}
     const requestToken = jest.fn().mockImplementation(

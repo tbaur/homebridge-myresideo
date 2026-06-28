@@ -15,13 +15,9 @@
  *   - distinguishes an invalid refresh token from rejected API credentials;
  *   - persists the rotated refresh token via {@link TokenManagerOptions.onRefreshToken}.
  */
-import type { TokenResponse } from '../types';
+import type { PluginLogger, TokenResponse } from '../types';
 /** Minimal logger surface; any subset of methods may be provided. */
-export interface AuthLogger {
-    debug?: (message: string) => void;
-    warn?: (message: string) => void;
-    error?: (message: string) => void;
-}
+export type AuthLogger = PluginLogger;
 export interface TokenManagerOptions {
     consumerKey: string;
     consumerSecret: string;

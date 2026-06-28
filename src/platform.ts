@@ -33,7 +33,7 @@ import {
   UUID_PREFIX,
 } from './settings'
 import type { LeakDetectorOptions, ResideoPlatformConfig, WaterLeakDetector } from './types'
-import { isWaterLeakDetector, sanitizeError, validateConfig } from './utils'
+import { isWaterLeakDetector, maskToken, sanitizeError, validateConfig } from './utils'
 
 export default class ResideoPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof ServiceClass
@@ -120,6 +120,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     }
     try {
       const locations = await this.client.getLocations()
+      // The await above can span a shutdown; if so, stop before wiring anything
+      // up (registering accessories or starting a poll timer that nothing clears).
+      if (this.stopped) {
+        return
+      }
       const detectors: Array<{ device: WaterLeakDetector, locationId: number }> = []
       for (const location of locations) {
         for (const device of location.devices ?? []) {
@@ -228,6 +233,9 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   }
 
   private startPolling(): void {
+    if (this.stopped) {
+      return
+    }
     if (this.pollTimer) {
       clearInterval(this.pollTimer)
     }
@@ -238,6 +246,9 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
 
   /** Run one poll cycle, skipping if a previous cycle is still in flight. */
   private async runPollCycle(): Promise<void> {
+    if (this.stopped) {
+      return
+    }
     if (this.isPolling) {
       this.log.debug('Skipping poll tick; previous cycle still running')
       return
@@ -255,6 +266,9 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     if (!this.client) {
       return
     }
+    // Snapshot the device IDs that currently have a known location. Each worker
+    // re-checks per device below, since pruning/discovery can mutate the maps
+    // while a cycle is in flight.
     const deviceIds = [...this.handlers.keys()].filter(id => this.locationByDevice.has(id))
     const workerCount = Math.min(POLL_DEVICE_CONCURRENCY, deviceIds.length)
     if (workerCount === 0) {
@@ -309,10 +323,10 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       const block = blocks.find(p => p.name === this.config.name) ?? blocks[0]
       if (block?.credentials) {
         block.credentials.refreshToken = newRefreshToken
-        const tempPath = `${configPath}.${process.pid}.tmp`
+        const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`
         await fs.writeFile(tempPath, JSON.stringify(parsed, null, 4), 'utf8')
         await fs.rename(tempPath, configPath)
-        this.log.debug('Persisted rotated refresh token to config.json')
+        this.log.debug(`Persisted rotated refresh token to config.json (${maskToken(newRefreshToken)})`)
       }
     } catch (err) {
       this.log.warn(`Could not persist rotated refresh token: ${sanitizeError(err)}`)

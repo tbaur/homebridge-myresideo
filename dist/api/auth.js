@@ -130,8 +130,12 @@ class TokenManager {
     }
     applyToken(token) {
         const ttlSec = Number(token.expires_in) || settings_1.DEFAULT_TOKEN_TTL_SEC;
+        // Floor the usable lifetime so a pathologically short TTL (≤ the refresh
+        // buffer) can't make a brand-new token look already-expired and stampede
+        // the auth endpoint on every getAccessToken call.
+        const lifetimeMs = Math.max(ttlSec * 1000 - settings_1.TOKEN_REFRESH_BUFFER_MS, settings_1.MIN_TOKEN_LIFETIME_MS);
         this.accessToken = token.access_token;
-        this.expiresAt = this.now() + ttlSec * 1000 - settings_1.TOKEN_REFRESH_BUFFER_MS;
+        this.expiresAt = this.now() + lifetimeMs;
     }
 }
 exports.TokenManager = TokenManager;

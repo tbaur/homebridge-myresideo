@@ -9,7 +9,7 @@ This document is a **point-in-time assessment** of the plugin against the engine
 | Area | Status | Notes |
 |------|--------|-------|
 | **Credential Handling** | ✅ | OAuth2 only; the plugin never sees the user's Resideo password |
-| **Secret Redaction** | ✅ | `sanitizeError()` / `sanitizeString()` redact `apikey`, `Authorization`, bearer/basic credentials, access/refresh tokens, and the consumer/client secret; `maskToken()` available for correlation; token-endpoint response bodies are never logged |
+| **Secret Redaction** | ✅ | `sanitizeError()` / `sanitizeString()` redact `apikey`, `Authorization`, bearer/basic credentials, access/refresh tokens, and the consumer/client secret; `maskToken()` correlates a rotated refresh token in debug logs without exposing it; token-endpoint response bodies are never logged |
 | **Token Rotation** | ✅ | Rotated refresh tokens persisted back to `config.json` |
 | **Input Validation** | ✅ | `validateConfig()` runs at startup; fatal errors stop the plugin with an actionable message |
 | **HTTPS Only** | ✅ | All API calls to `https://api.honeywellhome.com` |
@@ -23,9 +23,9 @@ This document is a **point-in-time assessment** of the plugin against the engine
 
 | Area | Status | Notes |
 |------|--------|-------|
-| **Token Lifecycle** | ✅ | Optimistic use of a supplied token; refresh-ahead before expiry and on `401`; single-flight de-duplication; default TTL when API omits `expires_in` |
+| **Token Lifecycle** | ✅ | Optimistic use of a supplied token; refresh-ahead before expiry and on `401`; single-flight de-duplication; default TTL when API omits `expires_in`; a minimum-lifetime floor prevents a pathologically short TTL from stampeding the auth endpoint |
 | **Token Refresh Hardening** | ✅ | Refresh request is timeout-bounded and retries transient network/timeout/5xx failures with backoff |
-| **Transient-Error Retry** | ✅ | Network/timeout/5xx retried with exponential backoff (shared with the token manager); auth and non-429 4xx are not |
+| **Transient-Error Retry** | ✅ | Network/timeout/5xx/429 retried with jittered exponential backoff (shared with the token manager); a 429 `Retry-After` header is honored when present; 401 triggers one refresh-and-retry, while 403 (`ForbiddenError`) and other 4xx are not retried |
 | **Request Timeouts** | ✅ | All requests (including token refresh) bounded so a stalled socket cannot wedge the poll loop |
 | **Polling** | ✅ | Fixed cadence (120s default, 30s min); bounded concurrency (4) with an in-flight guard that skips overlapping ticks; immediate first poll after discovery |
 | **Discovery Resilience** | ✅ | Self-healing retry with capped exponential backoff (15s → 5min) on transient errors; non-recoverable auth/config errors are not retried |
@@ -40,7 +40,7 @@ This document is a **point-in-time assessment** of the plugin against the engine
 | Area | Status | Notes |
 |------|--------|-------|
 | **TypeScript** | ✅ | Strict mode; production and tests compile under the same strict settings (`tsconfig.test.json`); HAP types from the `homebridge` dev dependency |
-| **Test Coverage** | ✅ | **87 tests**, ~95% line / ~87% branch coverage across `src/` including `platform.ts` (91%) and `leak-sensor.ts` (100%) |
+| **Test Coverage** | ✅ | **106 tests**, ~94% line / ~86% branch coverage across `src/` including `platform.ts` (~90%) and `leak-sensor.ts` (100%) |
 | **Code Organization** | ✅ | `api/`, `devices/`, `utils/` (mappers/sanitizers/validators/backoff), `errors/`, `types/` |
 | **Dependencies** | ✅ | Zero runtime dependencies (native `https`) |
 | **Lint** | ✅ | ESLint flat config, 0 errors |
@@ -84,8 +84,8 @@ The remaining items for broad production sign-off are **feature/verification** w
 ### Overall: Early-stage, production-quality foundation
 
 ```
-Tests:       87 passing (unit + integration smoke)
-Coverage:    ~95% lines / ~87% branches across src/ (incl. platform.ts and leak-sensor.ts)
+Tests:       106 passing (unit + integration smoke)
+Coverage:    ~94% lines / ~86% branches across src/ (incl. platform.ts and leak-sensor.ts)
 Lint:        0 errors
 Audit:       run in CI on every push/PR
 ```

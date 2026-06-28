@@ -32,18 +32,15 @@ import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_TOKEN_TTL_SEC,
   MAX_TOKEN_REFRESH_ATTEMPTS,
+  MIN_TOKEN_LIFETIME_MS,
   TOKEN_REFRESH_BUFFER_MS,
   TOKEN_URL,
 } from '../settings'
-import type { TokenResponse } from '../types'
+import type { PluginLogger, TokenResponse } from '../types'
 import { backoffMs, delay } from '../utils/backoff'
 
 /** Minimal logger surface; any subset of methods may be provided. */
-export interface AuthLogger {
-  debug?: (message: string) => void
-  warn?: (message: string) => void
-  error?: (message: string) => void
-}
+export type AuthLogger = PluginLogger
 
 export interface TokenManagerOptions {
   consumerKey: string
@@ -181,8 +178,12 @@ export class TokenManager {
 
   private applyToken(token: TokenResponse): void {
     const ttlSec = Number(token.expires_in) || DEFAULT_TOKEN_TTL_SEC
+    // Floor the usable lifetime so a pathologically short TTL (≤ the refresh
+    // buffer) can't make a brand-new token look already-expired and stampede
+    // the auth endpoint on every getAccessToken call.
+    const lifetimeMs = Math.max(ttlSec * 1000 - TOKEN_REFRESH_BUFFER_MS, MIN_TOKEN_LIFETIME_MS)
     this.accessToken = token.access_token
-    this.expiresAt = this.now() + ttlSec * 1000 - TOKEN_REFRESH_BUFFER_MS
+    this.expiresAt = this.now() + lifetimeMs
   }
 }
 

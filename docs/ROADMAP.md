@@ -2,7 +2,7 @@
 
 ## Done (0.1.0 scaffold)
 
-- Project foundation: strict TypeScript, ESLint flat config, Jest + coverage, PR CI matrix, release-please + OIDC publishing, Apache-2.0 license.
+- Project foundation: strict TypeScript, ESLint flat config, Jest + coverage, PR CI matrix, release-please + OIDC publishing workflow (configured but currently disabled pending npm Trusted Publisher setup — see [`RELEASING.md`](../RELEASING.md)), Apache-2.0 license.
 - Honeywell Home API evaluation and typed contract (`docs/API.md`).
 - OAuth2 `TokenManager` with optimistic startup, proactive/single-flight refresh, timeout + transient retry, rotation persistence, and differentiated credential vs. refresh-token errors (unit tested).
 - `ResideoApiClient` with `apikey` + bearer injection, timeout, transient retry, and 401 refresh-and-retry (unit tested).

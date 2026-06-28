@@ -9,15 +9,23 @@ import {
   ApiResponseError,
   AuthenticationError,
   createApiError,
+  ForbiddenError,
   RateLimitError,
   RefreshTokenInvalidError,
 } from '../../src/errors'
 
 describe('createApiError', () => {
-  it('maps 401/403 to AuthenticationError (non-retryable)', () => {
+  it('maps 401 to a non-retryable AuthenticationError', () => {
     expect(createApiError(401, 'x')).toBeInstanceOf(AuthenticationError)
-    expect(createApiError(403, 'x')).toBeInstanceOf(AuthenticationError)
     expect(createApiError(401, 'x').isRetryable).toBe(false)
+  })
+
+  it('maps 403 to a non-retryable ForbiddenError (not an AuthenticationError)', () => {
+    const err = createApiError(403, 'x')
+    expect(err).toBeInstanceOf(ForbiddenError)
+    expect(err).not.toBeInstanceOf(AuthenticationError)
+    expect(err.isRetryable).toBe(false)
+    expect(err.httpStatus).toBe(403)
   })
 
   it('maps 429 to a retryable RateLimitError', () => {
