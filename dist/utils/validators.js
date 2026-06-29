@@ -20,6 +20,22 @@ function isNonEmptyString(value) {
     return typeof value === 'string' && value.trim().length > 0;
 }
 /**
+ * Whether a per-device entry carries any actual override beyond its (here
+ * missing) deviceID. An entirely empty row — e.g. one the settings UI adds and
+ * the user never fills in — is silently ignored, while a row that configures
+ * something but forgot its deviceID is a real mistake worth warning about.
+ */
+function hasMeaningfulDeviceOverride(device) {
+    if (!device || typeof device !== 'object') {
+        return false;
+    }
+    return isNonEmptyString(device.name)
+        || typeof device.freezeThresholdCelsius === 'number'
+        || device.hideTemperatureSensor === true
+        || device.hideHumiditySensor === true
+        || device.enableFreezeSensor === true;
+}
+/**
  * Validate the platform configuration block. Pure and side-effect free so it is
  * trivially unit-testable; the caller decides how to surface the results.
  */
@@ -66,8 +82,11 @@ function validateConfig(config) {
             }
             else {
                 devices.forEach((device, index) => {
-                    if (!isNonEmptyString(device?.deviceID)) {
-                        warnings.push(`options.devices[${index}] is missing a deviceID and will be ignored.`);
+                    // Silently skip empty rows (e.g. a blank entry left by the settings
+                    // UI); only warn when an otherwise-configured override lacks the
+                    // deviceID it needs to apply.
+                    if (!isNonEmptyString(device?.deviceID) && hasMeaningfulDeviceOverride(device)) {
+                        warnings.push(`options.devices[${index}] is configured but missing a deviceID and will be ignored.`);
                     }
                 });
             }

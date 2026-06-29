@@ -42,17 +42,23 @@
 
       <div class="form-group">
         <label for="resideoKey">Consumer Key (API Key)</label>
-        <input id="resideoKey" type="text" class="form-control" autocomplete="off" spellcheck="false">
+        <input id="resideoKey" name="resideo-consumer-key" type="text" class="form-control"
+          autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+          data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
       </div>
 
       <div class="form-group">
         <label for="resideoSecret">Consumer Secret (API Secret)</label>
-        <input id="resideoSecret" type="password" class="form-control" autocomplete="off" spellcheck="false">
+        <input id="resideoSecret" name="resideo-consumer-secret" type="password" class="form-control"
+          autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"
+          data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
       </div>
 
       <div class="form-group">
         <label for="resideoRedirect">Redirect URL</label>
-        <input id="resideoRedirect" type="text" class="form-control" autocomplete="off" spellcheck="false">
+        <input id="resideoRedirect" name="resideo-redirect-url" type="text" class="form-control"
+          autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+          data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
         <small class="form-text text-muted resideo-hint">
           Must match the Callback URL registered on your Resideo developer application, byte-for-byte. The default
           below is fine for most setups; you do not need anything running at this address.

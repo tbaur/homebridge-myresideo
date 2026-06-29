@@ -71,10 +71,31 @@ describe('validateConfig', () => {
     expect(result.warnings.some(w => w.includes('devices'))).toBe(true)
   })
 
-  it('warns when a device entry is missing a deviceID', () => {
+  it('warns when a configured device entry is missing a deviceID', () => {
+    const result = validateConfig(baseConfig({
+      options: { devices: [{ deviceID: '', enableFreezeSensor: true }] },
+    }))
+    expect(result.warnings.some(w => w.includes('deviceID'))).toBe(true)
+  })
+
+  it('silently ignores an empty device entry (e.g. a blank row from the settings UI)', () => {
     const result = validateConfig(baseConfig({
       options: { devices: [{ deviceID: '' }] },
     }))
-    expect(result.warnings.some(w => w.includes('deviceID'))).toBe(true)
+    expect(result.warnings.some(w => w.includes('deviceID'))).toBe(false)
+  })
+
+  it('silently ignores an empty device entry whose booleans defaulted to false', () => {
+    const result = validateConfig(baseConfig({
+      options: {
+        devices: [{
+          deviceID: '',
+          hideTemperatureSensor: false,
+          hideHumiditySensor: false,
+          enableFreezeSensor: false,
+        }],
+      },
+    }))
+    expect(result.warnings.some(w => w.includes('deviceID'))).toBe(false)
   })
 })
