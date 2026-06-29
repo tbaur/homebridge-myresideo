@@ -18,6 +18,7 @@ src/
   devices/
     leak-sensor.ts    HomeKit accessory: leak/temp/humidity/battery/freeze.
   utils/
+    backoff.ts        Jittered exponential-backoff + delay helpers (shared).
     mappers.ts        Pure device-state → HomeKit mapping helpers.
     sanitizers.ts     Secret redaction / token masking for logs.
     validators.ts     Startup config validation.
