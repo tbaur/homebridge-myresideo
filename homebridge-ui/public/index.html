@@ -112,6 +112,13 @@
       const AUTHORIZE_URL = 'https://api.honeywellhome.com/oauth2/authorize'
       const byId = id => document.getElementById(id)
 
+      // Warm up the UI server child process as early as possible. config-ui-x
+      // can drop the response to the very first request sent to a freshly
+      // spawned child, so we spend that cold-start request on a throwaway ping
+      // (fire-and-forget) instead of on the one-time token exchange — which
+      // otherwise left the "Link account" spinner hanging until a page reload.
+      homebridge.request('/ping').catch(() => {})
+
       const keyEl = byId('resideoKey')
       const secretEl = byId('resideoSecret')
       const redirectEl = byId('resideoRedirect')
