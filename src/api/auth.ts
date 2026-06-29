@@ -31,6 +31,7 @@ import {
   AUTHORIZE_URL,
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_TOKEN_TTL_SEC,
+  MAX_RESPONSE_BODY_BYTES,
   MAX_TOKEN_REFRESH_ATTEMPTS,
   MIN_TOKEN_LIFETIME_MS,
   TOKEN_REFRESH_BUFFER_MS,
@@ -177,6 +178,9 @@ export class TokenManager {
   }
 
   private applyToken(token: TokenResponse): void {
+    if (typeof token.access_token !== 'string' || token.access_token.length === 0) {
+      throw new ApiParseError('Token response did not include a usable access_token')
+    }
     const ttlSec = Number(token.expires_in) || DEFAULT_TOKEN_TTL_SEC
     // Floor the usable lifetime so a pathologically short TTL (≤ the refresh
     // buffer) can't make a brand-new token look already-expired and stampede
@@ -321,7 +325,17 @@ function defaultRequestToken(formBody: string, basicAuth: string): Promise<Token
       },
       (res) => {
         const chunks: Buffer[] = []
-        res.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+        let total = 0
+        res.on('data', (chunk) => {
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+          total += buf.length
+          if (total > MAX_RESPONSE_BODY_BYTES) {
+            req.destroy()
+            reject(new NetworkError(`Token response body exceeded the ${MAX_RESPONSE_BODY_BYTES}-byte limit`))
+            return
+          }
+          chunks.push(buf)
+        })
         res.on('end', () => {
           const raw = Buffer.concat(chunks).toString('utf8')
           const status = res.statusCode ?? 0

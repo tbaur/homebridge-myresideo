@@ -27,5 +27,5 @@ export {
   maskToken,
 } from './sanitizers'
 
-export { validateConfig } from './validators'
+export { validateConfig, sanitizeFreezeThreshold } from './validators'
 export type { ConfigValidationResult } from './validators'

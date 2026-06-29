@@ -60,17 +60,18 @@ Example: `feat: add temperature sensor for leak detectors`
 ## Pull Request Process
 
 1. Update documentation if needed
-2. Update CHANGELOG.md with your changes
-3. Ensure CI passes (tests, linting)
-4. Request review from maintainers
+2. Ensure CI passes (tests, linting)
+3. Request review from maintainers
+
+> `CHANGELOG.md` is generated automatically by release-please from your
+> Conventional Commit / PR titles — do not edit it by hand. See [RELEASING.md](RELEASING.md).
 
 ### PR Checklist
 
 - [ ] Tests added/updated
 - [ ] Linting passes
 - [ ] Documentation updated
-- [ ] CHANGELOG.md updated
-- [ ] Descriptive PR title
+- [ ] Descriptive PR title (Conventional Commits)
 
 ## Adding Device Support
 

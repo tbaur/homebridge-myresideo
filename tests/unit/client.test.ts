@@ -113,6 +113,23 @@ describe('ResideoApiClient', () => {
     expect(transport).toHaveBeenCalledTimes(2)
   })
 
+  it('rejects a non-array locations payload with ApiParseError', async () => {
+    const transport = jest.fn().mockResolvedValue({ status: 200, body: JSON.stringify({ error: 'nope' }) })
+    const { client } = makeClient(transport)
+
+    await expect(client.getLocations()).rejects.toBeInstanceOf(ApiParseError)
+  })
+
+  it('returns a valid locations array', async () => {
+    const transport = jest.fn().mockResolvedValue({
+      status: 200,
+      body: JSON.stringify([{ locationID: 1, devices: [] }]),
+    })
+    const { client } = makeClient(transport)
+
+    await expect(client.getLocations()).resolves.toEqual([{ locationID: 1, devices: [] }])
+  })
+
   it('builds the water leak detector URL with deviceId and locationId', async () => {
     let capturedUrl = ''
     const transport = jest.fn(async (url: string) => {

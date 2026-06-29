@@ -28,6 +28,7 @@ import {
   DEVICES_URL,
   LOCATIONS_URL,
   MAX_API_RETRY_ATTEMPTS,
+  MAX_RESPONSE_BODY_BYTES,
   MAX_RETRY_AFTER_MS,
   WATER_LEAK_DETECTOR_TYPE,
 } from '../settings'
@@ -76,7 +77,14 @@ export class ResideoApiClient {
 
   /** GET all locations (with their embedded devices) for the authenticated user. */
   async getLocations(): Promise<ResideoLocation[]> {
-    return this.get<ResideoLocation[]>(LOCATIONS_URL, {})
+    const locations = await this.get<unknown>(LOCATIONS_URL, {})
+    // The locations endpoint must return an array; anything else (an object,
+    // null, an error envelope) would otherwise blow up when the caller iterates
+    // it, so surface it as a typed, non-retryable parse error.
+    if (!Array.isArray(locations)) {
+      throw new ApiParseError('Locations response was not an array; the API returned an unexpected payload.')
+    }
+    return locations as ResideoLocation[]
   }
 
   /** GET a single water leak detector's current status. */
@@ -218,7 +226,17 @@ function defaultTransport(url: string, accessToken: string, timeoutMs: number): 
       },
       (res) => {
         const chunks: Buffer[] = []
-        res.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+        let total = 0
+        res.on('data', (chunk) => {
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+          total += buf.length
+          if (total > MAX_RESPONSE_BODY_BYTES) {
+            req.destroy()
+            reject(new NetworkError(`Response body exceeded the ${MAX_RESPONSE_BODY_BYTES}-byte limit`))
+            return
+          }
+          chunks.push(buf)
+        })
         res.on('end', () => resolve({
           status: res.statusCode ?? 0,
           body: Buffer.concat(chunks).toString('utf8'),

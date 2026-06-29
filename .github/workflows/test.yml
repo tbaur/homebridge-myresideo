@@ -34,6 +34,10 @@ jobs:
     - name: Build TypeScript
       run: npm run build
 
+    # dist/ is committed (so git installs work); fail if it drifted from src/.
+    - name: Verify committed dist is in sync with src
+      run: git diff --exit-code -- dist
+
     - name: Run linter
       run: npm run lint
 

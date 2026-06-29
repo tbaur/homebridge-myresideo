@@ -24,6 +24,11 @@ const SENSITIVE_PATTERNS = [
     { pattern: /"access_token"\s*:\s*"[^"]+"/gi, replacement: '"access_token":"***"' },
     { pattern: /"refresh_token"\s*:\s*"[^"]+"/gi, replacement: '"refresh_token":"***"' },
     { pattern: /"?(?:consumer_?secret|client_secret)"?\s*[=:]\s*"?[^&\s"']+"?/gi, replacement: 'consumerSecret=***' },
+    // The API Key (consumerKey / OAuth client_id) is credential material too; it
+    // doubles as the `apikey` query param. Redact its JSON and key/value forms
+    // (the dedicated apikey= form is handled below).
+    { pattern: /"(?:consumer_?key|client_id)"\s*:\s*"[^"]+"/gi, replacement: '"consumerKey":"***"' },
+    { pattern: /\b(?:consumer_?key|client_id)\s*[=:]\s*"?[^&\s"']+"?/gi, replacement: 'consumerKey=***' },
     { pattern: /apikey=[^&\s"']+/gi, replacement: 'apikey=***' },
     { pattern: /access_token[=:]\s*"?[^&\s"']+"?/gi, replacement: 'access_token=***' },
     { pattern: /refresh_token[=:]\s*"?[^&\s"']+"?/gi, replacement: 'refresh_token=***' },

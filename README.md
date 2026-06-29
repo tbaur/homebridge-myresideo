@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/homebridge-myresideo?style=flat-square)](https://www.npmjs.com/package/homebridge-myresideo)
 [![npm downloads](https://img.shields.io/npm/dt/homebridge-myresideo?label=downloads&style=flat-square)](https://www.npmjs.com/package/homebridge-myresideo)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-green)](https://nodejs.org)
-[![Homebridge](https://img.shields.io/badge/homebridge-%3E%3D1.6.0-purple)](https://homebridge.io)
+[![Homebridge](https://img.shields.io/badge/homebridge-%3E%3D1.6.0%20%7C%7C%202.x-purple)](https://homebridge.io)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in Apple HomeKit through Homebridge.

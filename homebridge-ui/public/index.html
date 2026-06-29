@@ -183,14 +183,17 @@
       // through. Bound the wait so the spinner can never stick: a genuine save
       // error still rejects (and surfaces) well before the timeout.
       const SAVE_ACK_TIMEOUT_MS = 4000
+      // Resolves true when the save is acknowledged, false when only the
+      // timeout fired (the write almost certainly still went through, but we
+      // could not confirm it). A genuine save error still rejects.
       const persistConfig = () => {
-        const save = homebridge.savePluginConfig()
+        const save = homebridge.savePluginConfig().then(() => true)
         // If it does eventually reject after the timeout has won the race, make
         // sure that late rejection is not reported as unhandled.
         save.catch(() => {})
         return Promise.race([
           save,
-          new Promise(resolve => setTimeout(resolve, SAVE_ACK_TIMEOUT_MS)),
+          new Promise(resolve => setTimeout(() => resolve(false), SAVE_ACK_TIMEOUT_MS)),
         ])
       }
 
@@ -278,10 +281,17 @@
             refreshToken: tokens.refreshToken,
           })
           await homebridge.updatePluginConfig(config)
-          await persistConfig()
+          const acked = await persistConfig()
           resetLinkSteps()
           showLinkedView()
-          homebridge.toast.success('Account linked and tokens saved. Restart Homebridge to apply.', 'MyResideo')
+          if (acked) {
+            homebridge.toast.success('Account linked and tokens saved. Restart Homebridge to apply.', 'MyResideo')
+          } else {
+            homebridge.toast.warning(
+              'Account linked. Saving did not confirm in time — verify the tokens are saved, then restart Homebridge.',
+              'MyResideo',
+            )
+          }
         } catch (err) {
           homebridge.toast.error(err.message, 'Linking failed')
         } finally {
