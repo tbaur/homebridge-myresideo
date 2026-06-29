@@ -19,6 +19,15 @@ import type { TokenManager as TokenManagerType } from '../../src/api/auth'
 const BASE = API_BASE_URL
 const OVERSIZED_BODY = 'x'.repeat(MAX_RESPONSE_BODY_BYTES + 1)
 
+/**
+ * A socket-level failure as Node's https stack surfaces it. nock >= 14 only
+ * emits the request 'error' event for a real Error instance; a plain
+ * `{ code, message }` object is silently ignored (the request hangs).
+ */
+function socketError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code })
+}
+
 function stubTokenManager() {
   return {
     getAccessToken: jest.fn().mockResolvedValue('access-token'),
@@ -103,7 +112,7 @@ describe('TokenManager default requester (native https)', () => {
   })
 
   it('maps a socket-level failure to a NetworkError', async () => {
-    nock(BASE).post('/oauth2/token').replyWithError({ code: 'ECONNRESET', message: 'reset' })
+    nock(BASE).post('/oauth2/token').replyWithError(socketError('ECONNRESET', 'reset'))
 
     const manager = new TokenManager({
       consumerKey: 'key',
@@ -169,7 +178,7 @@ describe('ResideoApiClient default transport (native https)', () => {
     nock(BASE)
       .get('/v2/locations')
       .query({ apikey: 'my-key' })
-      .replyWithError({ code: 'ECONNRESET', message: 'reset' })
+      .replyWithError(socketError('ECONNRESET', 'reset'))
 
     const client = new ResideoApiClient({
       tokenManager: stubTokenManager(),

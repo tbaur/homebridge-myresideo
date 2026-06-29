@@ -63,6 +63,10 @@ module.exports = {
 
   testTimeout: 10000,
   verbose: true,
+  // forceExit guarantees a clean shutdown after the suite. detectOpenHandles is
+  // intentionally left off the standing config: it is a debugging aid (run via
+  // `jest --detectOpenHandles` when chasing a hang) that reports false positives
+  // for nock 14's mock sockets, which are not real leaks. Enabling both together
+  // is contradictory.
   forceExit: true,
-  detectOpenHandles: true,
 }

@@ -176,6 +176,9 @@ function defaultTransport(url, accessToken, timeoutMs) {
                 const buf = node_buffer_1.Buffer.isBuffer(chunk) ? chunk : node_buffer_1.Buffer.from(chunk);
                 total += buf.length;
                 if (total > settings_1.MAX_RESPONSE_BODY_BYTES) {
+                    // Tear down the response stream as well as the request so the
+                    // underlying socket is released immediately instead of lingering.
+                    res.destroy();
                     req.destroy();
                     reject(new errors_1.NetworkError(`Response body exceeded the ${settings_1.MAX_RESPONSE_BODY_BYTES}-byte limit`));
                     return;
