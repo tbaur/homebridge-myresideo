@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.0.0](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.12...v1.0.0) (2026-06-29)
+
+
+### Miscellaneous Chores
+
+* graduate to 1.0.0 ([#34](https://github.com/tbaur/homebridge-myresideo/issues/34)) ([6c003a6](https://github.com/tbaur/homebridge-myresideo/commit/6c003a667b5bad466482ab5918874eb50d16081d))
+
 ## [0.1.12](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.11...v0.1.12) (2026-06-29)
 
 
