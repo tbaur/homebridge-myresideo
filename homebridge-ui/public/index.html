@@ -111,13 +111,62 @@
       // the click gesture and is not popup-blocked.
       const AUTHORIZE_URL = 'https://api.honeywellhome.com/oauth2/authorize'
       const byId = id => document.getElementById(id)
+      const log = (...args) => console.info('[resideo-ui]', ...args)
 
-      // Warm up the UI server child process as early as possible. config-ui-x
-      // can drop the response to the very first request sent to a freshly
-      // spawned child, so we spend that cold-start request on a throwaway ping
-      // (fire-and-forget) instead of on the one-time token exchange — which
-      // otherwise left the "Link account" spinner hanging until a page reload.
-      homebridge.request('/ping').catch(() => {})
+      // homebridge.request()/savePluginConfig()/etc. all funnel through an
+      // internal _requestResponse() that waits forever for the parent's reply.
+      // config-ui-x can drop the reply to the very first request sent to a
+      // freshly spawned UI-server child, and its config.save reply can be
+      // dropped by a structured-clone error — either of which leaves the
+      // spinner stuck. These helpers bound every call so that can never happen.
+
+      // The token exchange is a single network round-trip to Resideo; bound it
+      // generously so a dropped reply surfaces as an error instead of hanging.
+      const EXCHANGE_TIMEOUT_MS = 25000
+
+      // Reject if `promise` does not settle within `ms` (use when the result is
+      // required, e.g. the token exchange).
+      const withTimeout = (promise, ms, label) =>
+        Promise.race([
+          promise,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
+        ])
+
+      // Resolve true when `promise` settles in time, false on timeout — for
+      // config writes that may succeed even when their acknowledgement is lost.
+      const BEST_EFFORT_TIMEOUT_MS = 4000
+      const bestEffort = promise => {
+        const settled = promise.then(() => true)
+        settled.catch(() => {})
+        return Promise.race([
+          settled,
+          new Promise(resolve => setTimeout(() => resolve(false), BEST_EFFORT_TIMEOUT_MS)),
+        ])
+      }
+
+      // Ping the UI-server child until it answers, so the one-time token
+      // exchange is never the cold-start request whose reply can be dropped.
+      // /ping is idempotent, so retrying it is always safe.
+      const PING_ATTEMPTS = 8
+      const PING_TIMEOUT_MS = 2000
+      const pingOnce = () =>
+        Promise.race([
+          homebridge.request('/ping').then(() => true).catch(() => false),
+          new Promise(resolve => setTimeout(() => resolve(false), PING_TIMEOUT_MS)),
+        ])
+      const warmUpServer = async () => {
+        for (let attempt = 1; attempt <= PING_ATTEMPTS; attempt++) {
+          if (await pingOnce()) {
+            log('server ready after ping attempt', attempt)
+            return true
+          }
+          log('ping attempt', attempt, 'did not answer; retrying')
+        }
+        log('server never answered ping after', PING_ATTEMPTS, 'attempts')
+        return false
+      }
+      let serverReady = warmUpServer()
 
       const keyEl = byId('resideoKey')
       const secretEl = byId('resideoSecret')
@@ -187,22 +236,9 @@
       // serialize a Promise, so the postMessage throws and the acknowledgement
       // to this iframe is dropped — leaving homebridge.savePluginConfig()
       // pending forever even though the write to config.json already went
-      // through. Bound the wait so the spinner can never stick: a genuine save
-      // error still rejects (and surfaces) well before the timeout.
-      const SAVE_ACK_TIMEOUT_MS = 4000
-      // Resolves true when the save is acknowledged, false when only the
-      // timeout fired (the write almost certainly still went through, but we
-      // could not confirm it). A genuine save error still rejects.
-      const persistConfig = () => {
-        const save = homebridge.savePluginConfig().then(() => true)
-        // If it does eventually reject after the timeout has won the race, make
-        // sure that late rejection is not reported as unhandled.
-        save.catch(() => {})
-        return Promise.race([
-          save,
-          new Promise(resolve => setTimeout(() => resolve(false), SAVE_ACK_TIMEOUT_MS)),
-        ])
-      }
+      // through. bestEffort() resolves false on timeout (the write almost
+      // certainly still went through, but we could not confirm it).
+      const persistConfig = () => bestEffort(homebridge.savePluginConfig())
 
       try {
         config = await homebridge.getPluginConfig()
@@ -274,12 +310,22 @@
         }
         homebridge.showSpinner()
         try {
-          const tokens = await homebridge.request('/exchange-code', {
-            consumerKey,
-            consumerSecret,
-            redirectUri,
-            pastedValue,
-          })
+          // Make sure the UI-server child is actually answering before we send
+          // the single-use code. If the initial warm-up gave up, try once more
+          // (the child may simply have been slow to spawn).
+          if (!(await serverReady)) {
+            serverReady = warmUpServer()
+            if (!(await serverReady)) {
+              throw new Error('The linking service did not respond. Reload this page and try again.')
+            }
+          }
+          log('exchanging authorization code')
+          const tokens = await withTimeout(
+            homebridge.request('/exchange-code', { consumerKey, consumerSecret, redirectUri, pastedValue }),
+            EXCHANGE_TIMEOUT_MS,
+            'Token exchange',
+          )
+          log('exchange succeeded; writing config')
           const block = ensureBlock()
           block.credentials = Object.assign({}, block.credentials, {
             consumerKey,
@@ -287,8 +333,9 @@
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
           })
-          await homebridge.updatePluginConfig(config)
+          await bestEffort(homebridge.updatePluginConfig(config))
           const acked = await persistConfig()
+          log('config persisted; acknowledged =', acked)
           resetLinkSteps()
           showLinkedView()
           if (acked) {
@@ -300,6 +347,7 @@
             )
           }
         } catch (err) {
+          log('linking failed:', err && err.message)
           homebridge.toast.error(err.message, 'Linking failed')
         } finally {
           homebridge.hideSpinner()
