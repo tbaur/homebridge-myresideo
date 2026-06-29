@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.3](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.2...v0.1.3) (2026-06-29)
+
+
+### Bug Fixes
+
+* collapsible settings layout + linked-state UI ([7dd4b75](https://github.com/tbaur/homebridge-myresideo/commit/7dd4b752727110362a1a003a45fc22fc4145b201))
+
 ## [0.1.2](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.1...v0.1.2) (2026-06-29)
 
 
