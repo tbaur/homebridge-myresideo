@@ -12,16 +12,11 @@ name: Release
 #      release, and the publish job below pushes the package to npm.
 #
 # npm auth uses Trusted Publishing (OIDC) -- no NPM_TOKEN secret. See RELEASING.md.
-#
-# TEMPORARILY DISABLED: automated releasing/publishing is turned off until npm
-# Trusted Publishing (OIDC) is configured on npmjs.com. With only the
-# `workflow_dispatch` trigger below, pushing to `main` will NOT run release-please
-# or publish to npm. To re-enable, uncomment the `push` trigger.
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches: [ main ]
+  push:
+    branches: [ main ]
 
 # Least privilege by default; each job opts into exactly what it needs.
 permissions: {}

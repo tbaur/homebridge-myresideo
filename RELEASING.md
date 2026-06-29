@@ -1,7 +1,5 @@
 # Releasing
 
-> **Status: automated releasing is currently disabled.** `.github/workflows/release.yml` is limited to the `workflow_dispatch` trigger (the `push` trigger is commented out) until npm Trusted Publishing (OIDC) is configured on npmjs.com. Until it is re-enabled, merging to `main` does **not** run release-please or publish. This document describes the intended flow once the `push` trigger is restored. See the note at the top of `release.yml`.
-
 Releases are fully automated with [release-please](https://github.com/googleapis/release-please). Versions, `CHANGELOG.md`, git tags, GitHub Releases, and `npm publish` are all derived from commit messages — none are edited or run by hand.
 
 ## Flow
