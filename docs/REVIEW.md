@@ -52,7 +52,7 @@ This document summarizes the plugin's security, reliability, maintainability, an
 | Area | Status | Notes |
 |------|--------|-------|
 | **Logging** | ✅ | Uses the Homebridge logger; all error logging routed through `sanitizeError` |
-| **Config Schema ↔ Validators** | ✅ | `validateConfig` enforces every field (including credentials) at startup; the settings form (`config.schema.json`) covers the user-editable options, while credentials are managed by the account-linking UI rather than shown in the form |
+| **Config Schema ↔ Validators** | ✅ | `validateConfig` enforces every field (including credentials) at startup; `config.schema.json` declares both the user-editable options and the `credentials` object (so config-ui-x preserves the saved tokens), but keeps `credentials` out of the rendered `layout` so they are managed by the account-linking UI rather than shown in the form. A schema regression test (`tests/unit/config-schema.test.ts`) locks in this contract |
 | **Differentiated Errors** | ✅ | Invalid refresh token vs. rejected API credentials are logged distinctly so users know whether to re-link or fix credentials |
 | **Structured Diagnostics** | ⚠️ | No dedicated diagnostics/health-heartbeat subsystem; standard logging covers current needs |
 | **Integration Smoke Tests** | ✅ | `tests/integration/network.test.ts` exercises the native transport with `nock` (no live API) |

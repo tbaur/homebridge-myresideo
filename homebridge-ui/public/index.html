@@ -339,7 +339,15 @@
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
           })
-          await bestEffort(homebridge.updatePluginConfig(config))
+          // The in-memory config update must actually succeed: the save below
+          // persists whatever config-ui-x currently holds, so swallowing a
+          // failure here would silently write back the pre-link config (no
+          // tokens). Bound it so a dropped reply surfaces instead of hanging.
+          await withTimeout(
+            homebridge.updatePluginConfig(config),
+            EXCHANGE_TIMEOUT_MS,
+            'Updating plugin config',
+          )
           const acked = await persistConfig()
           log('config persisted; acknowledged =', acked)
           resetLinkSteps()
