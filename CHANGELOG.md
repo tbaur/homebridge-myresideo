@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.0.1](https://github.com/tbaur/homebridge-myresideo/compare/v1.0.0...v1.0.1) (2026-06-29)
+
+
+### Bug Fixes
+
+* remove orphaned optional sensor services from cached accessories ([#38](https://github.com/tbaur/homebridge-myresideo/issues/38)) ([3ca62e3](https://github.com/tbaur/homebridge-myresideo/commit/3ca62e3dea3d62587c384c34f284b689eab7d4cf))
+
 ## 1.0.0 (2026-06-29)
 
 Initial stable release. Monitors Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors in Apple HomeKit through Homebridge.
