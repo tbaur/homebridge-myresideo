@@ -15,34 +15,6 @@
         "default": "MyResideo",
         "description": "Plugin instance name shown in the Homebridge log."
       },
-      "credentials": {
-        "type": "object",
-        "properties": {
-          "consumerKey": {
-            "title": "Consumer Key (API Key)",
-            "type": "string",
-            "required": true,
-            "description": "The API Key from your Resideo developer application."
-          },
-          "consumerSecret": {
-            "title": "Consumer Secret (API Secret)",
-            "type": "string",
-            "required": true,
-            "description": "The API Secret from your Resideo developer application."
-          },
-          "accessToken": {
-            "title": "Access Token",
-            "type": "string",
-            "description": "OAuth2 access token (populated when you link your account)."
-          },
-          "refreshToken": {
-            "title": "Refresh Token",
-            "type": "string",
-            "required": true,
-            "description": "OAuth2 refresh token (populated when you link your account)."
-          }
-        }
-      },
       "options": {
         "type": "object",
         "properties": {
