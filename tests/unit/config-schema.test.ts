@@ -16,15 +16,39 @@ import { resolve } from 'node:path'
 
 interface SchemaProperty {
   type?: string
+  required?: unknown
   properties?: Record<string, SchemaProperty>
+  items?: SchemaProperty
 }
 
 interface ConfigSchema {
   pluginAlias: string
   pluginType: string
   customUiPath?: string
-  schema: { properties: Record<string, SchemaProperty> }
+  schema: SchemaProperty & { properties: Record<string, SchemaProperty> }
   layout: unknown[]
+}
+
+/**
+ * Collect every `required` value found anywhere in the schema tree. config-ui-x
+ * validates the saved config with ajv (draft-07), where `required` MUST be an
+ * array of property names at the object level. A boolean `"required": true` on
+ * an individual field makes the whole schema fail to compile, so config-ui-x
+ * cannot validate and reports "Config validation failed" for every config.
+ */
+function collectRequiredValues(node: SchemaProperty | undefined, found: unknown[]): void {
+  if (!node || typeof node !== 'object') {
+    return
+  }
+  if ('required' in node) {
+    found.push(node.required)
+  }
+  if (node.properties) {
+    for (const child of Object.values(node.properties)) {
+      collectRequiredValues(child, found)
+    }
+  }
+  collectRequiredValues(node.items, found)
 }
 
 function loadSchema(): ConfigSchema {
@@ -58,5 +82,22 @@ describe('config.schema.json', () => {
   it('keeps credentials out of the rendered layout (managed by the linking UI)', () => {
     const layoutJson = JSON.stringify(schema.layout)
     expect(layoutJson).not.toContain('credentials')
+  })
+
+  it('never declares `required` as a boolean (invalid draft-07; breaks ajv validation)', () => {
+    const requiredValues: unknown[] = []
+    collectRequiredValues(schema.schema, requiredValues)
+    for (const value of requiredValues) {
+      expect(Array.isArray(value)).toBe(true)
+    }
+  })
+
+  it('requires the platform name so Homebridge 2.x does not warn on startup', () => {
+    expect(schema.schema.required).toEqual(expect.arrayContaining(['name']))
+  })
+
+  it('requires deviceID on each per-device override entry', () => {
+    const deviceItems = schema.schema.properties.options?.properties?.devices?.items
+    expect(deviceItems?.required).toEqual(expect.arrayContaining(['deviceID']))
   })
 })
