@@ -22,6 +22,11 @@ export interface RawResponse {
     /** Response headers (lower-cased keys), used to honor `Retry-After` on 429s. */
     headers?: Record<string, string | string[] | undefined>;
 }
+/** A single networked request outcome, reported to the diagnostics collector. */
+export interface RequestMetric {
+    durationMs: number;
+    ok: boolean;
+}
 export interface ApiClientOptions {
     tokenManager: TokenManager;
     /** Developer API Key, sent as the required `apikey` query parameter. */
@@ -31,6 +36,14 @@ export interface ApiClientOptions {
     logger?: ClientLogger;
     /** Injectable transport (primarily for tests). */
     transport?: (url: string, accessToken: string, timeoutMs: number) => Promise<RawResponse>;
+    /**
+     * Optional diagnostics hook invoked once per networked transport attempt with
+     * its wall-clock duration and success flag. Never invoked for pre-flight
+     * failures (e.g. a token refresh that fails before any request is sent).
+     */
+    metrics?: (sample: RequestMetric) => void;
+    /** Optional diagnostics hook invoked each time a request attempt is retried. */
+    onRetry?: () => void;
 }
 export declare class ResideoApiClient {
     private readonly tokenManager;
@@ -39,6 +52,8 @@ export declare class ResideoApiClient {
     private readonly maxRetryAttempts;
     private readonly logger?;
     private readonly transport;
+    private readonly metrics?;
+    private readonly onRetry?;
     constructor(options: ApiClientOptions);
     /** GET all locations (with their embedded devices) for the authenticated user. */
     getLocations(): Promise<ResideoLocation[]>;
@@ -51,6 +66,14 @@ export declare class ResideoApiClient {
     get<T>(baseUrl: string, params: Record<string, string>): Promise<T>;
     private buildUrl;
     private requestWithRetry;
+    /**
+     * Invoke the transport and time the attempt. A networked failure (a non-2xx
+     * response, or a thrown network/timeout error) records an `ok: false` metric
+     * here and is re-thrown/returned for the retry logic. A 2xx response does NOT
+     * record here: its metric is deferred to {@link get} so the JSON parse outcome
+     * is included, and the measured duration is returned to the caller.
+     */
+    private timedTransport;
     private parseJson;
 }
 //# sourceMappingURL=client.d.ts.map

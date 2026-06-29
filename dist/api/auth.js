@@ -37,9 +37,12 @@ class TokenManager {
      * normal proactive-expiry lifecycle takes over.
      */
     accessTokenIsOptimistic;
+    lastRefreshAt = null;
     consumerKey;
     consumerSecret;
     onRefreshToken;
+    onRefreshSuccess;
+    onRefreshFailure;
     logger;
     now;
     maxRefreshAttempts;
@@ -51,6 +54,8 @@ class TokenManager {
         this.accessToken = options.accessToken ?? null;
         this.accessTokenIsOptimistic = Boolean(options.accessToken);
         this.onRefreshToken = options.onRefreshToken;
+        this.onRefreshSuccess = options.onRefreshSuccess;
+        this.onRefreshFailure = options.onRefreshFailure;
         this.logger = options.logger;
         this.now = options.now ?? Date.now;
         this.maxRefreshAttempts = options.maxRefreshAttempts ?? settings_1.MAX_TOKEN_REFRESH_ATTEMPTS;
@@ -83,6 +88,21 @@ class TokenManager {
     getRefreshToken() {
         return this.refreshToken;
     }
+    /**
+     * Synchronous, in-memory token health for diagnostics. `expiresInSec` is the
+     * remaining lifetime of the current access token (negative once past expiry),
+     * or `null` when the expiry is unknown — either no token has been obtained yet
+     * or an optimistic config-supplied token (whose true expiry the plugin cannot
+     * know) is still in use. `lastRefreshAt` is the epoch ms of the last successful
+     * refresh (`null` until the first refresh).
+     */
+    getStatus() {
+        const expiryKnown = this.accessToken !== null && this.expiresAt > 0;
+        return {
+            expiresInSec: expiryKnown ? Math.round((this.expiresAt - this.now()) / 1000) : null,
+            lastRefreshAt: this.lastRefreshAt,
+        };
+    }
     refresh() {
         if (this.refreshInFlight) {
             return this.refreshInFlight;
@@ -110,16 +130,19 @@ class TokenManager {
             try {
                 const token = await this.requestToken(formBody, basicAuth);
                 this.applyToken(token);
+                this.lastRefreshAt = this.now();
                 if (token.refresh_token && token.refresh_token !== this.refreshToken) {
                     this.refreshToken = token.refresh_token;
                     await this.onRefreshToken?.(token.refresh_token);
                     this.logger?.debug?.('Refresh token rotated and persisted');
                 }
+                this.onRefreshSuccess?.();
                 return this.accessToken;
             }
             catch (err) {
                 const isRetryable = err instanceof errors_1.NetworkError || err instanceof errors_1.TimeoutError;
                 if (!isRetryable || attempt === this.maxRefreshAttempts) {
+                    this.onRefreshFailure?.();
                     throw err;
                 }
                 lastError = err;
@@ -127,6 +150,7 @@ class TokenManager {
                 await (0, backoff_1.delay)((0, backoff_1.backoffMs)(attempt));
             }
         }
+        this.onRefreshFailure?.();
         throw lastError instanceof Error ? lastError : new errors_1.NetworkError('Token refresh failed');
     }
     applyToken(token) {

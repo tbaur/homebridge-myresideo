@@ -16,4 +16,4 @@ export type {
 } from './auth'
 
 export { ResideoApiClient } from './client'
-export type { ApiClientOptions, ClientLogger, RawResponse } from './client'
+export type { ApiClientOptions, ClientLogger, RawResponse, RequestMetric } from './client'

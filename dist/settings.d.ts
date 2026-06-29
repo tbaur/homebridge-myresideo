@@ -81,6 +81,17 @@ export declare const MIN_TOKEN_LIFETIME_MS = 30000;
 /** Battery percentage at or below which HomeKit reports "low battery". */
 export declare const LOW_BATTERY_THRESHOLD = 15;
 /**
+ * Minimum allowed diagnostics interval (seconds). Below this the health report
+ * would spam the log without adding signal; a sub-minimum value is clamped up.
+ */
+export declare const MIN_DIAGNOSTICS_INTERVAL_SEC = 30;
+/**
+ * How long after a failed token refresh the plugin keeps reporting degraded
+ * health, so a transient refresh blip is visible in diagnostics for a sensible
+ * window rather than only on the exact heartbeat that coincided with it.
+ */
+export declare const TOKEN_REFRESH_FAILURE_COOLDOWN_MS: number;
+/**
  * Default temperature (Celsius) at or below which the detector is considered to
  * be in a "freeze" condition. Used when the device does not expose its own
  * configured low-temperature limit.

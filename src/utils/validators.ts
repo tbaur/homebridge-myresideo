@@ -9,7 +9,7 @@
  * instead of surfacing as an opaque runtime error later.
  */
 
-import { MIN_REFRESH_RATE_SEC } from '../settings'
+import { MIN_DIAGNOSTICS_INTERVAL_SEC, MIN_REFRESH_RATE_SEC } from '../settings'
 import type { LeakDetectorOptions, ResideoPlatformConfig } from '../types'
 
 /** Lowest plausible freeze threshold in Celsius (sanity bound). */
@@ -113,13 +113,26 @@ export function validateConfig(config: ResideoPlatformConfig | undefined): Confi
 
   const options = config?.options
   if (options) {
-    const { refreshRate, freezeThresholdCelsius, devices } = options
+    const { refreshRate, freezeThresholdCelsius, diagnosticsInterval, devices } = options
 
     if (refreshRate !== undefined) {
       if (typeof refreshRate !== 'number' || Number.isNaN(refreshRate)) {
         warnings.push('options.refreshRate must be a number; using the default instead.')
       } else if (refreshRate < MIN_REFRESH_RATE_SEC) {
         warnings.push(`options.refreshRate ${refreshRate}s is below the ${MIN_REFRESH_RATE_SEC}s minimum; it will be clamped.`)
+      }
+    }
+
+    if (diagnosticsInterval !== undefined) {
+      if (typeof diagnosticsInterval !== 'number' || Number.isNaN(diagnosticsInterval)) {
+        warnings.push('options.diagnosticsInterval must be a number; diagnostics will be disabled.')
+      } else if (diagnosticsInterval < 0) {
+        warnings.push('options.diagnosticsInterval cannot be negative; diagnostics will be disabled.')
+      } else if (diagnosticsInterval > 0 && diagnosticsInterval < MIN_DIAGNOSTICS_INTERVAL_SEC) {
+        warnings.push(
+          `options.diagnosticsInterval ${diagnosticsInterval}s is below the `
+          + `${MIN_DIAGNOSTICS_INTERVAL_SEC}s minimum; it will be clamped.`,
+        )
       }
     }
 

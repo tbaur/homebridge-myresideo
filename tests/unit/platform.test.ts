@@ -405,3 +405,138 @@ describe('refresh rate', () => {
     expect(refreshRateMsFor(300)).toBe(300 * 1000)
   })
 })
+
+describe('diagnostics', () => {
+  interface TokenOpts {
+    onRefreshSuccess?: () => void
+    onRefreshFailure?: () => void
+  }
+
+  /**
+   * Override the TokenManager mock with one that exposes the getStatus() surface
+   * the diagnostics readers call, and capture the options so a test can drive the
+   * refresh-success/failure callbacks. Returns a live reference to the captured
+   * options (populated once the platform constructs the TokenManager).
+   */
+  function stubTokenManagerWithStatus(): { current: TokenOpts | undefined } {
+    const captured: { current: TokenOpts | undefined } = { current: undefined }
+    ;(TokenManager as unknown as jest.Mock).mockImplementation((opts: TokenOpts) => {
+      captured.current = opts
+      return {
+        opts,
+        getStatus: () => ({ expiresInSec: 1000, lastRefreshAt: null }),
+        getAccessToken: jest.fn(),
+        forceRefresh: jest.fn(),
+        getRefreshToken: jest.fn(),
+      }
+    })
+    return captured
+  }
+
+  function diagnosticsConfig(overrides: Record<string, unknown> = {}): ResideoPlatformConfig {
+    const config = validConfig()
+    config.options = { diagnosticsInterval: 30, ...overrides }
+    return config
+  }
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  it('emits a boot snapshot, periodic heartbeat, and a stop snapshot', async () => {
+    jest.useFakeTimers()
+    stubTokenManagerWithStatus()
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, diagnosticsConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Diagnostics start'))
+
+    // The 30s diagnostics interval fires before the 120s poll interval.
+    await jest.advanceTimersByTimeAsync(30_000)
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Health: healthy'))
+
+    handlers.shutdown()
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Diagnostics stop'))
+  })
+
+  it('does not emit diagnostics when diagnosticsInterval is unset (default off)', async () => {
+    jest.useFakeTimers()
+    stubTokenManagerWithStatus()
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+    await jest.advanceTimersByTimeAsync(60_000)
+
+    expect(log.info).not.toHaveBeenCalledWith(expect.stringContaining('Diagnostics start'))
+    expect(log.info).not.toHaveBeenCalledWith(expect.stringContaining('Health:'))
+
+    handlers.shutdown()
+  })
+
+  it('emits a structured JSON line when structuredLogs is enabled', async () => {
+    jest.useFakeTimers()
+    stubTokenManagerWithStatus()
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, diagnosticsConfig({ structuredLogs: true }), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+
+    const jsonLine = (log.info as jest.Mock).mock.calls
+      .map(args => args[0] as string)
+      .find(line => typeof line === 'string' && line.startsWith('{'))
+    expect(jsonLine).toBeDefined()
+    const parsed = JSON.parse(jsonLine as string) as { msg: string, lifecycle: { health: string } }
+    expect(parsed.msg).toBe('diagnostics.start')
+    expect(parsed.lifecycle.health).toBe('healthy')
+    // The lifecycle fields live only under the nested object, not duplicated at root.
+    expect(parsed).not.toHaveProperty('health')
+
+    handlers.shutdown()
+  })
+
+  it('logs a degraded transition when a token refresh starts failing', async () => {
+    jest.useFakeTimers()
+    const tokenOpts = stubTokenManagerWithStatus()
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, diagnosticsConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0) // boot snapshot: healthy
+
+    // Simulate the token manager reporting a failed refresh, which opens the
+    // degraded-health cooldown window the heartbeat reads.
+    tokenOpts.current?.onRefreshFailure?.()
+
+    await jest.advanceTimersByTimeAsync(30_000)
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Health degraded'))
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('tokenRefreshFailing'))
+
+    // A subsequent successful refresh clears the cooldown and recovers health.
+    tokenOpts.current?.onRefreshSuccess?.()
+    await jest.advanceTimersByTimeAsync(30_000)
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Health recovered'))
+
+    handlers.shutdown()
+  })
+})

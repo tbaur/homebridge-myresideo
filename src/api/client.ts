@@ -47,6 +47,12 @@ export interface RawResponse {
   headers?: Record<string, string | string[] | undefined>
 }
 
+/** A single networked request outcome, reported to the diagnostics collector. */
+export interface RequestMetric {
+  durationMs: number
+  ok: boolean
+}
+
 export interface ApiClientOptions {
   tokenManager: TokenManager
   /** Developer API Key, sent as the required `apikey` query parameter. */
@@ -56,6 +62,14 @@ export interface ApiClientOptions {
   logger?: ClientLogger
   /** Injectable transport (primarily for tests). */
   transport?: (url: string, accessToken: string, timeoutMs: number) => Promise<RawResponse>
+  /**
+   * Optional diagnostics hook invoked once per networked transport attempt with
+   * its wall-clock duration and success flag. Never invoked for pre-flight
+   * failures (e.g. a token refresh that fails before any request is sent).
+   */
+  metrics?: (sample: RequestMetric) => void
+  /** Optional diagnostics hook invoked each time a request attempt is retried. */
+  onRetry?: () => void
 }
 
 export class ResideoApiClient {
@@ -65,6 +79,8 @@ export class ResideoApiClient {
   private readonly maxRetryAttempts: number
   private readonly logger?: ClientLogger
   private readonly transport: (url: string, accessToken: string, timeoutMs: number) => Promise<RawResponse>
+  private readonly metrics?: (sample: RequestMetric) => void
+  private readonly onRetry?: () => void
 
   constructor(options: ApiClientOptions) {
     this.tokenManager = options.tokenManager
@@ -73,6 +89,8 @@ export class ResideoApiClient {
     this.maxRetryAttempts = options.maxRetryAttempts ?? MAX_API_RETRY_ATTEMPTS
     this.logger = options.logger
     this.transport = options.transport ?? defaultTransport
+    this.metrics = options.metrics
+    this.onRetry = options.onRetry
   }
 
   /** GET all locations (with their embedded devices) for the authenticated user. */
@@ -99,8 +117,19 @@ export class ResideoApiClient {
    */
   async get<T>(baseUrl: string, params: Record<string, string>): Promise<T> {
     const url = this.buildUrl(baseUrl, params)
-    const raw = await this.requestWithRetry(url)
-    return this.parseJson<T>(raw, url)
+    const { raw, durationMs } = await this.requestWithRetry(url)
+    // The successful (2xx) attempt's metric is recorded here, after parsing, so
+    // a 200 with an unparseable body is counted as a failure rather than masking
+    // a real error as success. Failed/retried attempts are recorded in
+    // timedTransport, giving exactly one metric per networked attempt.
+    try {
+      const parsed = this.parseJson<T>(raw, url)
+      this.metrics?.({ durationMs, ok: true })
+      return parsed
+    } catch (err) {
+      this.metrics?.({ durationMs, ok: false })
+      throw err
+    }
   }
 
   private buildUrl(baseUrl: string, params: Record<string, string>): string {
@@ -112,7 +141,7 @@ export class ResideoApiClient {
     return url.toString()
   }
 
-  private async requestWithRetry(url: string): Promise<RawResponse> {
+  private async requestWithRetry(url: string): Promise<{ raw: RawResponse, durationMs: number }> {
     let lastError: unknown
     let refreshedOnAuth = false
 
@@ -122,10 +151,10 @@ export class ResideoApiClient {
       let waitMs: number | undefined
       try {
         const accessToken = await this.tokenManager.getAccessToken()
-        const raw = await this.transport(url, accessToken, this.timeoutMs)
+        const { raw, durationMs } = await this.timedTransport(url, accessToken)
 
         if (raw.status >= 200 && raw.status < 300) {
-          return raw
+          return { raw, durationMs }
         }
 
         const error = createApiError(raw.status, `Request to ${redact(url)} failed (${raw.status})`)
@@ -135,6 +164,7 @@ export class ResideoApiClient {
           refreshedOnAuth = true
           this.logger?.debug?.('Received 401; forcing token refresh and retrying')
           await this.tokenManager.forceRefresh()
+          this.onRetry?.()
           continue
         }
 
@@ -157,11 +187,34 @@ export class ResideoApiClient {
       }
 
       if (attempt < this.maxRetryAttempts) {
+        this.onRetry?.()
         await delay(waitMs ?? backoffMs(attempt))
       }
     }
 
     throw lastError instanceof Error ? lastError : new NetworkError('Request failed after retries')
+  }
+
+  /**
+   * Invoke the transport and time the attempt. A networked failure (a non-2xx
+   * response, or a thrown network/timeout error) records an `ok: false` metric
+   * here and is re-thrown/returned for the retry logic. A 2xx response does NOT
+   * record here: its metric is deferred to {@link get} so the JSON parse outcome
+   * is included, and the measured duration is returned to the caller.
+   */
+  private async timedTransport(url: string, accessToken: string): Promise<{ raw: RawResponse, durationMs: number }> {
+    const startedAt = Date.now()
+    try {
+      const raw = await this.transport(url, accessToken, this.timeoutMs)
+      const durationMs = Date.now() - startedAt
+      if (raw.status < 200 || raw.status >= 300) {
+        this.metrics?.({ durationMs, ok: false })
+      }
+      return { raw, durationMs }
+    } catch (err) {
+      this.metrics?.({ durationMs: Date.now() - startedAt, ok: false })
+      throw err
+    }
   }
 
   private parseJson<T>(raw: RawResponse, url: string): T {

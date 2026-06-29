@@ -11,6 +11,7 @@
 - ✅ Fault signaling on missing readings instead of showing stale values
 - ✅ Connectivity & alarm faults: an offline device or any active `currentAlarms` entry (e.g. `HighHumidity`, `DeviceOffline`) is surfaced as a HomeKit `StatusFault`, and the alarm type is logged when it changes
 - ✅ State-change logging: each poll logs leak, connectivity, low-battery, freeze, and alarm transitions once when they change (not every cycle), with a full per-device snapshot available at debug level
+- ✅ Opt-in health diagnostics (`diagnosticsInterval`): a periodic heartbeat reporting API latency (p50/p95), poll success/failure, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup (high API error rate, token-refresh failure, or a fully-failed poll cycle), with boot/shutdown snapshots, healthy↔degraded transition logs, and optional structured-JSON output (`structuredLogs`)
 - ✅ Freeze detection derived from temperature (optional Contact Sensor, per device)
 - ✅ Battery level and low-battery status (no misleading default when unreported)
 - ✅ Configurable polling (120s default, 30s minimum) with bounded concurrency and an in-flight guard
@@ -41,6 +42,7 @@ homebridge-myresideo/
 │   ├── settings.ts       # Constants + API endpoints
 │   ├── api/              # OAuth2 token manager + HTTP client
 │   ├── devices/          # HomeKit accessory handlers
+│   ├── diagnostics/      # Opt-in health/activity metrics collector
 │   ├── utils/            # Mappers, sanitizers, validators, backoff
 │   ├── errors/           # Structured error hierarchy
 │   └── types/            # TypeScript type definitions

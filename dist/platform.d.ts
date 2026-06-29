@@ -27,7 +27,22 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     private stopped;
     /** True when startup validation failed; the platform stays inert. */
     private disabled;
+    private diagnostics?;
+    private diagnosticsTimer?;
+    private lastDiagnosticsHealth;
+    /** Detectors returned by Resideo at the last successful discovery. */
+    private lastCloudDetectorCount;
+    /** Epoch ms of the last failed token refresh, for the degraded-health window. */
+    private lastRefreshFailureAt;
     constructor(log: Logging, config: ResideoPlatformConfig, api: API);
+    /**
+     * Record a device state transition (leak/offline/battery/freeze) for the
+     * diagnostics activity counter. Called by the accessory handlers. The collector
+     * accumulates counters whenever the platform is active (regardless of
+     * `diagnosticsInterval`); only emission to the log is gated on the interval, so
+     * this is a no-op only when the platform was disabled by invalid config.
+     */
+    recordStateChange(): void;
     /** Restore an accessory from the Homebridge cache. */
     configureAccessory(accessory: PlatformAccessory): void;
     private get refreshRateMs();
@@ -55,9 +70,45 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     private startPolling;
     /** Run one poll cycle, skipping if a previous cycle is still in flight. */
     private runPollCycle;
-    /** Poll every device with bounded concurrency so cycle time stays bounded. */
+    /**
+     * Poll every device with bounded concurrency so cycle time stays bounded.
+     * Returns per-cycle success/failure counts for diagnostics.
+     */
     private pollAll;
     private handleError;
+    /** Diagnostics heartbeat interval in milliseconds (0 when disabled). */
+    private diagnosticsIntervalMs;
+    /** Effective polling cadence in seconds (mirrors refreshRateMs clamping). */
+    private pollingCadenceSeconds;
+    /**
+     * Start the diagnostics subsystem: emit the boot snapshot and schedule the
+     * heartbeat. No-op unless options.diagnosticsInterval > 0. Diagnostics must
+     * never be able to crash the host, so emission is wrapped defensively.
+     */
+    private startDiagnostics;
+    /** Emit the cumulative stop snapshot and tear down the heartbeat timer. */
+    private stopDiagnostics;
+    /**
+     * Emit a single heartbeat (per-interval deltas) and log health transitions.
+     * Wrapped so a reader failure can never escape the timer and crash Homebridge.
+     */
+    private diagnosticsHeartbeat;
+    /**
+     * Build the synchronous, in-memory readers the collector uses. Never performs
+     * network I/O.
+     */
+    private buildDiagnosticsReaders;
+    /**
+     * Compute absolute device gauges from the latest polled state stored on each
+     * accessory's context. Reachability and active conditions are the meaningful
+     * signals for these read-only sensors.
+     */
+    private collectDeviceGauges;
+    /**
+     * Emit a diagnostics report as a human-readable line, plus a structured JSON
+     * line when options.structuredLogs is enabled. The report is already redacted.
+     */
+    private emitDiagnostic;
     /**
      * Persist a rotated refresh token back into config.json so it survives a
      * Homebridge restart. Writes atomically (temp file + rename) so a crash

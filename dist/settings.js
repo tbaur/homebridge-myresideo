@@ -8,7 +8,7 @@
  * @fileoverview Plugin-wide constants and Resideo / Honeywell Home API endpoints.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_FREEZE_THRESHOLD_C = exports.LOW_BATTERY_THRESHOLD = exports.MIN_TOKEN_LIFETIME_MS = exports.DEFAULT_TOKEN_TTL_SEC = exports.TOKEN_REFRESH_BUFFER_MS = exports.MAX_DISCOVERY_RETRY_MS = exports.INITIAL_DISCOVERY_RETRY_MS = exports.POLL_DEVICE_CONCURRENCY = exports.MAX_RESPONSE_BODY_BYTES = exports.MAX_RETRY_AFTER_MS = exports.MAX_API_RETRY_ATTEMPTS = exports.MAX_TOKEN_REFRESH_ATTEMPTS = exports.DEFAULT_REQUEST_TIMEOUT_MS = exports.MIN_REFRESH_RATE_SEC = exports.DEFAULT_REFRESH_RATE_SEC = exports.LEAK_DETECTOR_DEVICE_CLASS = exports.WATER_LEAK_DETECTOR_TYPE = exports.DEVICES_URL = exports.LOCATIONS_URL = exports.TOKEN_URL = exports.AUTHORIZE_URL = exports.API_BASE_URL = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
+exports.DEFAULT_FREEZE_THRESHOLD_C = exports.TOKEN_REFRESH_FAILURE_COOLDOWN_MS = exports.MIN_DIAGNOSTICS_INTERVAL_SEC = exports.LOW_BATTERY_THRESHOLD = exports.MIN_TOKEN_LIFETIME_MS = exports.DEFAULT_TOKEN_TTL_SEC = exports.TOKEN_REFRESH_BUFFER_MS = exports.MAX_DISCOVERY_RETRY_MS = exports.INITIAL_DISCOVERY_RETRY_MS = exports.POLL_DEVICE_CONCURRENCY = exports.MAX_RESPONSE_BODY_BYTES = exports.MAX_RETRY_AFTER_MS = exports.MAX_API_RETRY_ATTEMPTS = exports.MAX_TOKEN_REFRESH_ATTEMPTS = exports.DEFAULT_REQUEST_TIMEOUT_MS = exports.MIN_REFRESH_RATE_SEC = exports.DEFAULT_REFRESH_RATE_SEC = exports.LEAK_DETECTOR_DEVICE_CLASS = exports.WATER_LEAK_DETECTOR_TYPE = exports.DEVICES_URL = exports.LOCATIONS_URL = exports.TOKEN_URL = exports.AUTHORIZE_URL = exports.API_BASE_URL = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
 /** Name used to register the plugin with Homebridge (must match package.json name). */
 exports.PLUGIN_NAME = 'homebridge-myresideo';
 /** Platform identifier referenced in the user's Homebridge config. */
@@ -83,6 +83,17 @@ exports.DEFAULT_TOKEN_TTL_SEC = 1799;
 exports.MIN_TOKEN_LIFETIME_MS = 30_000;
 /** Battery percentage at or below which HomeKit reports "low battery". */
 exports.LOW_BATTERY_THRESHOLD = 15;
+/**
+ * Minimum allowed diagnostics interval (seconds). Below this the health report
+ * would spam the log without adding signal; a sub-minimum value is clamped up.
+ */
+exports.MIN_DIAGNOSTICS_INTERVAL_SEC = 30;
+/**
+ * How long after a failed token refresh the plugin keeps reporting degraded
+ * health, so a transient refresh blip is visible in diagnostics for a sensible
+ * window rather than only on the exact heartbeat that coincided with it.
+ */
+exports.TOKEN_REFRESH_FAILURE_COOLDOWN_MS = 5 * 60_000;
 /**
  * Default temperature (Celsius) at or below which the detector is considered to
  * be in a "freeze" condition. Used when the device does not expose its own

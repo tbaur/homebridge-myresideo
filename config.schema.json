@@ -54,6 +54,19 @@
             "placeholder": 4,
             "description": "Optional. Temperature at or below which the optional freeze sensor trips. Leave blank to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence."
           },
+          "diagnosticsInterval": {
+            "title": "Diagnostics Interval (seconds)",
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "description": "Emit a periodic plugin health report to the log every N seconds. Set to 0 to disable. A typical value is 300 (5 minutes); values between 1 and 30 are clamped up to 30."
+          },
+          "structuredLogs": {
+            "title": "Structured (JSON) Logs",
+            "type": "boolean",
+            "default": false,
+            "description": "Emit diagnostics as a machine-readable JSON line in addition to the human-readable summary."
+          },
           "devices": {
             "type": "array",
             "title": "Per-Device Options",
@@ -101,7 +114,9 @@
       "items": [
         "name",
         "options.refreshRate",
-        "options.freezeThresholdCelsius"
+        "options.freezeThresholdCelsius",
+        "options.diagnosticsInterval",
+        "options.structuredLogs"
       ]
     },
     {

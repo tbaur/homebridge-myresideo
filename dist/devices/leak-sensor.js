@@ -232,6 +232,14 @@ class LeakSensorAccessory {
                 log.info(`${name}: above freeze threshold (${state.temperature}°C)`);
             }
         }
+        // Count a diagnostics state change only after a baseline exists, so the
+        // first poll establishing initial state is not itself reported as a change.
+        if (prev !== undefined && (state.leak !== prev.leak
+            || state.online !== prev.online
+            || state.lowBattery !== prev.lowBattery
+            || state.freezing !== prev.freezing)) {
+            this.platform.recordStateChange();
+        }
         this.prev = {
             leak: state.leak,
             online: state.online,
