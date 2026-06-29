@@ -41,7 +41,7 @@ homebridge-myresideo/
 │   ├── settings.ts       # Constants + API endpoints
 │   ├── api/              # OAuth2 token manager + HTTP client
 │   ├── devices/          # HomeKit accessory handlers
-│   ├── utils/            # Mappers, sanitizers, validators
+│   ├── utils/            # Mappers, sanitizers, validators, backoff
 │   ├── errors/           # Structured error hierarchy
 │   └── types/            # TypeScript type definitions
 ├── homebridge-ui/        # Custom settings UI (account linking) + server.js

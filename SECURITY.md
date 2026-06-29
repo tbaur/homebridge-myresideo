@@ -4,7 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.x.x   | ✅ Active support  |
+| 1.x.x   | ✅ Active support  |
+| < 1.0   | ❌ Deprecated — please upgrade |
 
 ## Reporting a Vulnerability
 

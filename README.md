@@ -90,7 +90,7 @@ Your detectors are discovered at startup and appear in the Home app automaticall
 
 | Option | Required | Description |
 |--------|:--------:|-------------|
-| `name` | | Plugin instance name shown in the Homebridge log (defaults to `MyResideo`) |
+| `name` | ✓ | Plugin instance name shown in the Homebridge log (required by the schema; pre-filled with `MyResideo`) |
 | `credentials.consumerKey` | ✓ | Resideo developer application API Key |
 | `credentials.consumerSecret` | ✓ | Resideo developer application API Secret |
 | `credentials.refreshToken` | ✓ | OAuth2 refresh token (set when linking your account) |
