@@ -28,17 +28,22 @@
   <div class="card resideo-link-card">
     <div class="card-body">
       <h4 class="card-title">Link your Resideo account</h4>
-      <p class="resideo-hint text-muted">
-        This connects the plugin to your Resideo / Honeywell Home account using OAuth2. You will need a Resideo
-        <em>developer</em> application (created at
-        <a href="https://developer.honeywellhome.com/user" target="_blank" rel="noopener">developer.honeywellhome.com</a>)
-        for the Consumer Key and Secret below. The plugin only ever stores OAuth tokens, never your account password.
-      </p>
-
-      <div id="resideoLinked" class="alert alert-success" style="display:none">
-        Account linked. A refresh token is saved in your configuration. Re-link below only if you rotate your
-        credentials or sign in to a different account.
+      <div id="resideoLinkedView" style="display:none">
+        <div class="alert alert-success" style="margin-bottom:0.75rem">
+          <strong>Your Resideo account is linked.</strong> A refresh token is saved in your configuration and the
+          plugin keeps it refreshed automatically. Re-link only if you rotate your developer credentials or want to
+          connect a different account.
+        </div>
+        <button id="resideoRelink" type="button" class="btn btn-secondary btn-sm">Re-link account</button>
       </div>
+
+      <div id="resideoLinkForm" style="display:none">
+        <p class="resideo-hint text-muted">
+          This connects the plugin to your Resideo / Honeywell Home account using OAuth2. You will need a Resideo
+          <em>developer</em> application (created at
+          <a href="https://developer.honeywellhome.com/user" target="_blank" rel="noopener">developer.honeywellhome.com</a>)
+          for the Consumer Key and Secret below. The plugin only ever stores OAuth tokens, never your account password.
+        </p>
 
       <div class="form-group">
         <label for="resideoKey">Consumer Key (API Key)</label>
@@ -92,6 +97,7 @@
         </div>
         <button id="resideoLink" type="button" class="btn btn-success">Link account</button>
       </div>
+      </div>
     </div>
   </div>
 
@@ -109,14 +115,45 @@
       const step2 = byId('resideoStep2')
       const pastedEl = byId('resideoPasted')
       const linkBtn = byId('resideoLink')
-      const linkedBadge = byId('resideoLinked')
+      const linkedView = byId('resideoLinkedView')
+      const linkForm = byId('resideoLinkForm')
+      const relinkBtn = byId('resideoRelink')
 
       const trimmed = el => (el.value || '').trim()
 
-      const setLinkedBadge = () => {
+      const isLinked = () => {
         const cfg = currentConfig()
-        const linked = Boolean(cfg && cfg.credentials && cfg.credentials.refreshToken)
-        linkedBadge.style.display = linked ? 'block' : 'none'
+        return Boolean(cfg && cfg.credentials && cfg.credentials.refreshToken)
+      }
+
+      // Reveal the full linking form (first-time setup, or "Re-link").
+      const showLinkForm = () => {
+        linkedView.style.display = 'none'
+        linkForm.style.display = 'block'
+      }
+
+      // Collapse to the linked summary once a refresh token is on file.
+      const showLinkedView = () => {
+        linkForm.style.display = 'none'
+        linkedView.style.display = 'block'
+      }
+
+      // Returning to an already-linked account shows the summary + a Re-link
+      // button; otherwise the form is shown expanded.
+      const renderLinkState = () => {
+        if (isLinked()) {
+          showLinkedView()
+        } else {
+          showLinkForm()
+        }
+      }
+
+      // Reset the step-by-step form back to step 1 (used after a successful
+      // link and whenever the form is re-opened).
+      const resetLinkSteps = () => {
+        pastedEl.value = ''
+        step2.style.display = 'none'
+        authFallback.style.display = 'none'
       }
 
       // Returns the (possibly newly-created) first config block, kept current.
@@ -162,7 +199,7 @@
       keyEl.value = currentConfig().credentials.consumerKey || ''
       secretEl.value = currentConfig().credentials.consumerSecret || ''
       redirectEl.value = DEFAULT_REDIRECT_URI
-      setLinkedBadge()
+      renderLinkState()
 
       // Render the schema-generated form (general options + the collapsed
       // per-device fieldset defined in config.schema.json's layout) beneath this
@@ -173,6 +210,11 @@
           config = event.data
           ensureBlock()
         }
+      })
+
+      relinkBtn.addEventListener('click', () => {
+        resetLinkSteps()
+        showLinkForm()
       })
 
       openAuthBtn.addEventListener('click', async () => {
@@ -227,8 +269,8 @@
           })
           await homebridge.updatePluginConfig(config)
           await persistConfig()
-          pastedEl.value = ''
-          setLinkedBadge()
+          resetLinkSteps()
+          showLinkedView()
           homebridge.toast.success('Account linked and tokens saved. Restart Homebridge to apply.', 'MyResideo')
         } catch (err) {
           homebridge.toast.error(err.message, 'Linking failed')
