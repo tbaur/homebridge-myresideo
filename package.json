@@ -1,7 +1,7 @@
 {
   "name": "homebridge-myresideo",
   "displayName": "Homebridge My Resideo",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "A Homebridge plugin for Resideo (Honeywell Home) WiFi Water Leak & Freeze Detectors",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
