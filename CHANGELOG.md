@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.5](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.4...v0.1.5) (2026-06-29)
+
+
+### Bug Fixes
+
+* harden discovery retry, config validation, and token persistence ([#10](https://github.com/tbaur/homebridge-myresideo/issues/10)) ([69758d5](https://github.com/tbaur/homebridge-myresideo/commit/69758d5e290f9e0ea76f23d02531d88bc1f1332d))
+
 ## [0.1.4](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.3...v0.1.4) (2026-06-29)
 
 
