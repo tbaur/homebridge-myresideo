@@ -10,7 +10,9 @@ src/
   types/              Plugin config + Honeywell API types.
   errors/             Structured, typed error hierarchy with retry hints.
   api/
-    auth.ts           OAuth2 TokenManager (refresh-ahead, single-flight, rotation).
+    auth.ts           OAuth2 TokenManager (refresh-ahead, single-flight, rotation)
+                      plus the authorize-URL / code-exchange helpers shared by the
+                      account-linking UI and the get-tokens script.
     client.ts         HTTP client (apikey + bearer, timeout, retry, 401 handling).
     index.ts          Barrel exports.
   devices/
@@ -20,6 +22,11 @@ src/
     sanitizers.ts     Secret redaction / token masking for logs.
     validators.ts     Startup config validation.
     index.ts          Barrel exports.
+homebridge-ui/        Custom Homebridge settings UI (account linking).
+  server.js           Wraps the compiled dist/ OAuth2 helpers behind
+                      @homebridge/plugin-ui-utils request handlers.
+  public/index.html   "Link your Resideo account" panel; renders the schema
+                      form beneath it for the remaining options.
 scripts/
   get-tokens.mjs      Dev helper: runs the OAuth2 Authorization Code flow to
                       obtain the initial refresh/access tokens (see docs/AUTH.md).
@@ -27,7 +34,7 @@ scripts/
 
 ## Design principles
 
-- **No runtime dependencies.** Uses Node's native `https`. `homebridge` is a dev-only dependency (types) injected at runtime by the host. The published package therefore has an empty `dependencies` block and `npm audit --omit=dev` reports zero advisories.
+- **Dependency-light by design.** The Homebridge plugin runtime uses Node's native `https` and pulls in no third-party code. The package declares a single runtime dependency, `@homebridge/plugin-ui-utils` (itself dependency-free), used only by the optional custom settings UI that the Homebridge UI runs out-of-process — it is never loaded by the plugin at runtime. `homebridge` is a dev-only dependency (types) injected at runtime by the host, and `npm audit --omit=dev` reports zero advisories.
 - **Dev-dependency hygiene.** A single `overrides` entry pins `js-yaml` to `^4.2.0` across the dev tree, eliminating a transitive moderate advisory (GHSA-h67p-54hq-rp68) that reached `js-yaml@3.x` via jest's coverage chain (`babel-plugin-istanbul` → `@istanbuljs/load-nyc-config`). It is dev-only and never shipped.
 - **Pure logic is isolated** in `utils/` and `errors/` so it is trivially unit-testable; network/HAP code accepts injectable transports for testing.
 - **Strict TypeScript** (`noImplicitAny`, `noUnusedLocals`, etc.).

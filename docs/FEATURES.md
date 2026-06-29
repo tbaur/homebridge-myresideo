@@ -15,6 +15,7 @@
 - ✅ Battery level and low-battery status (no misleading default when unreported)
 - ✅ Configurable polling (120s default, 30s minimum) with bounded concurrency and an in-flight guard
 - ✅ OAuth2 with token auto-refresh before expiry and on `401`, optimistic use of a supplied token
+- ✅ Built-in account-linking UI (custom Homebridge settings panel) that runs the OAuth2 flow and saves your tokens; a `get-tokens` script remains as a command-line fallback
 - ✅ Refresh-token rotation persisted atomically back to `config.json`
 - ✅ Automatic retry of transient network/timeout/5xx errors (API and token refresh) with exponential backoff
 - ✅ Self-healing discovery retry after a transient startup outage
@@ -43,6 +44,7 @@ homebridge-myresideo/
 │   ├── utils/            # Mappers, sanitizers, validators
 │   ├── errors/           # Structured error hierarchy
 │   └── types/            # TypeScript type definitions
+├── homebridge-ui/        # Custom settings UI (account linking) + server.js
 ├── dist/                 # Compiled JavaScript (auto-generated)
 └── tests/
     ├── unit/*.test.ts    # Unit tests
@@ -56,4 +58,4 @@ homebridge-myresideo/
 - ESLint with zero warnings
 - TypeScript strict mode — production and tests compile under the same strict settings
 - JSDoc on public modules and exported helpers
-- No runtime dependencies (native `https`)
+- Lean dependencies: the plugin core uses Node's native `https`; the only runtime dependency, `@homebridge/plugin-ui-utils`, is itself dependency-free and used solely by the optional account-linking UI

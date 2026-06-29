@@ -6,11 +6,20 @@
 2. Create a new application; give it a name.
 3. Set the **Callback (Redirect) URL** to a localhost URL you will use with the helper script below. The default the script expects is `http://localhost:8581/oauth/callback`; if you register a different value, pass it via `--redirect-uri`. It must match byte-for-byte.
 4. Copy the generated **Consumer Key (API Key)** and **Consumer Secret (API Secret)**.
-5. Run the helper script (see below) to obtain the initial `accessToken` / `refreshToken`, then paste them into the plugin config.
+5. Link your account — either from the plugin settings UI (recommended) or with the `get-tokens` helper script (a command-line fallback). Both complete the same OAuth2 Authorization Code flow and end with a `refreshToken` (and `accessToken`) saved to your plugin config.
 
-> **The account-linking UI is on the roadmap (see [`ROADMAP.md`](ROADMAP.md)) and is not available yet.** Until then, use the `get-tokens` helper script to complete the Authorization Code flow, then paste the resulting tokens into the plugin config.
+## Linking your account from the plugin settings (recommended)
 
-## Obtaining tokens with the `get-tokens` helper
+The plugin ships a custom Homebridge settings UI that runs the Authorization Code flow for you. It is built on the same token-exchange code the plugin uses at runtime (`src/api/auth.ts`, unit tested), so nothing is sent anywhere except Resideo's token endpoint. In the Homebridge UI, open this plugin's settings and use the **Link your Resideo account** panel:
+
+1. Enter your **Consumer Key** and **Consumer Secret**, and confirm the **Redirect URL**. It must match the Callback URL registered on your developer application byte-for-byte; the default `http://localhost:8581/oauth/callback` is fine for most setups, and nothing needs to be listening there.
+2. Click **Open Resideo sign-in**. A new browser tab opens Resideo's sign-in page; sign in and approve access.
+3. Resideo redirects that tab to your Redirect URL with a one-time `code` attached. Because nothing is listening at that address, the tab will usually show a browser error or a blank page — that is expected. Copy the entire address-bar URL (or just the `code` value from it).
+4. Paste it into the **Paste the result** box and click **Link account**. The plugin exchanges the code for tokens, saves them to your config, and you restart Homebridge to apply.
+
+Because the `code` travels inside the redirect URL itself, this flow works identically whether Homebridge runs on the machine you are browsing from or on a remote host — there is no extra port to open and nothing to expose.
+
+## Obtaining tokens with the `get-tokens` helper (command-line fallback)
 
 The repository ships a one-off script that runs the OAuth2 Authorization Code flow for you. It starts a temporary localhost server on your registered redirect URI, opens the Resideo authorize page in your browser, captures the returned `code`, exchanges it for tokens, and prints a ready-to-paste `credentials` block. The token exchange itself is the same code the plugin uses at runtime (`src/api/auth.ts`) and is covered by unit tests.
 

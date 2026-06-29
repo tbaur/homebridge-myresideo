@@ -5,7 +5,7 @@
  * See LICENSE file for full license text
  */
 
-import { TokenManager, buildAuthorizeUrl, exchangeAuthorizationCode } from '../../src/api/auth'
+import { TokenManager, buildAuthorizeUrl, exchangeAuthorizationCode, extractAuthorizationCode } from '../../src/api/auth'
 import { NetworkError, RefreshTokenInvalidError, ValidationError } from '../../src/errors'
 import { AUTHORIZE_URL } from '../../src/settings'
 import type { TokenResponse } from '../../src/types'
@@ -203,6 +203,51 @@ describe('buildAuthorizeUrl', () => {
 
   it('rejects a missing redirect URI', () => {
     expect(() => buildAuthorizeUrl('k', '')).toThrow(ValidationError)
+  })
+})
+
+describe('extractAuthorizationCode', () => {
+  it('returns a bare code unchanged', () => {
+    expect(extractAuthorizationCode('abc123')).toBe('abc123')
+  })
+
+  it('trims surrounding whitespace from a bare code', () => {
+    expect(extractAuthorizationCode('  abc123\n')).toBe('abc123')
+  })
+
+  it('extracts the code from a full redirect URL', () => {
+    expect(
+      extractAuthorizationCode('http://localhost:8581/oauth/callback?code=abc123'),
+    ).toBe('abc123')
+  })
+
+  it('extracts the code when the redirect URL carries extra params', () => {
+    expect(
+      extractAuthorizationCode('http://localhost:8581/oauth/callback?state=xyz&code=abc123&scope=read'),
+    ).toBe('abc123')
+  })
+
+  it('rejects empty or whitespace-only input', () => {
+    expect(() => extractAuthorizationCode('   ')).toThrow(ValidationError)
+    expect(() => extractAuthorizationCode('')).toThrow(ValidationError)
+  })
+
+  it('surfaces an OAuth error carried on the redirect URL', () => {
+    expect(() => extractAuthorizationCode('http://localhost:8581/oauth/callback?error=access_denied'))
+      .toThrow(ValidationError)
+  })
+
+  it('rejects a redirect URL with no code', () => {
+    expect(() => extractAuthorizationCode('http://localhost:8581/oauth/callback?foo=bar'))
+      .toThrow(ValidationError)
+  })
+
+  it('rejects a malformed URL', () => {
+    expect(() => extractAuthorizationCode('http://')).toThrow(ValidationError)
+  })
+
+  it('rejects a bare value containing spaces (pasted extra text)', () => {
+    expect(() => extractAuthorizationCode('the code is abc123')).toThrow(ValidationError)
   })
 })
 

@@ -224,6 +224,48 @@ export function buildAuthorizeUrl(consumerKey: string, redirectUri: string): str
 }
 
 /**
+ * Pull the one-time authorization `code` out of whatever the user pastes back
+ * after approving access in the browser. Accepts either the bare `code` or the
+ * full redirect URL (e.g. `http://localhost:8581/oauth/callback?code=...&...`),
+ * so the account-linking UI can be forgiving about exactly what is pasted.
+ *
+ * Throws a {@link ValidationError} when no usable code is present, or when the
+ * URL carries an OAuth `error` instead of a code. The pasted value (which may
+ * contain a code) is never echoed back in the thrown message.
+ */
+export function extractAuthorizationCode(input: string): string {
+  const trimmed = typeof input === 'string' ? input.trim() : ''
+  if (!trimmed) {
+    throw new ValidationError('Paste the authorization code, or the full redirect URL, to finish linking.')
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    let parsed: URL
+    try {
+      parsed = new URL(trimmed)
+    } catch {
+      throw new ValidationError('The pasted redirect URL is not a valid URL.')
+    }
+    const oauthError = parsed.searchParams.get('error')
+    if (oauthError) {
+      throw new ValidationError(`Authorization was denied or failed (${oauthError}). Try linking again.`)
+    }
+    const code = parsed.searchParams.get('code')
+    if (!code) {
+      throw new ValidationError('The pasted redirect URL did not contain an authorization code.')
+    }
+    return code
+  }
+
+  // A bare value: reject anything with embedded whitespace, which means the
+  // user pasted surrounding text rather than just the code.
+  if (/\s/.test(trimmed)) {
+    throw new ValidationError('The authorization code should be a single value with no spaces.')
+  }
+  return trimmed
+}
+
+/**
  * Exchange a one-time authorization `code` for the initial access/refresh token
  * pair (the `grant_type=authorization_code` leg of the OAuth2 flow). This is the
  * tested core of the `get-tokens` helper; the returned `refresh_token` is what a

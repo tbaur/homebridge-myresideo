@@ -42,7 +42,7 @@ This document summarizes the plugin's security, reliability, maintainability, an
 | **TypeScript** | ✅ | Strict mode; production and tests compile under the same strict settings (`tsconfig.test.json`); HAP types from the `homebridge` dev dependency |
 | **Test Coverage** | ✅ | Unit + integration suites with a ≥80% coverage gate across `src/`, including the platform and accessory layers (mocked HAP surface) |
 | **Code Organization** | ✅ | `api/`, `devices/`, `utils/` (mappers/sanitizers/validators/backoff), `errors/`, `types/` |
-| **Dependencies** | ✅ | Zero runtime dependencies (native `https`) |
+| **Dependencies** | ✅ | Plugin core has zero runtime dependencies (native `https`); the lone runtime dependency, `@homebridge/plugin-ui-utils`, is itself dependency-free and used only by the optional account-linking UI |
 | **Lint** | ✅ | ESLint flat config, 0 errors |
 
 ---
@@ -61,7 +61,7 @@ This document summarizes the plugin's security, reliability, maintainability, an
 
 ## Scope
 
-The plugin targets a single device type (the WiFi Water Leak & Freeze Detector) over a poll-only REST API, and is intentionally kept small and dependency-free. Heavier infrastructure — a dedicated diagnostics subsystem and structured JSON logging — is not part of the current design; it can be added if field needs justify it. Adding support for other Honeywell Home device types is outlined in [`DEVELOPMENT.md`](../DEVELOPMENT.md).
+The plugin targets a single device type (the WiFi Water Leak & Freeze Detector) over a poll-only REST API, and is intentionally kept small, with a dependency-free runtime core (the optional account-linking UI adds a single, dependency-free package). Heavier infrastructure — a dedicated diagnostics subsystem and structured JSON logging — is not part of the current design; it can be added if field needs justify it. Adding support for other Honeywell Home device types is outlined in [`DEVELOPMENT.md`](../DEVELOPMENT.md).
 
 ---
 
@@ -74,7 +74,7 @@ The plugin targets a single device type (the WiFi Water Leak & Freeze Detector) 
 | **Maintainability** | Strong; small, well-tested (incl. platform/accessory), dependency-free core |
 | **Serviceability** | Good; standard logging, no dedicated diagnostics subsystem |
 
-Planned enhancements (a built-in account-linking UI, since tokens are currently obtained manually) are tracked in [`ROADMAP.md`](ROADMAP.md).
+A built-in account-linking UI — completing the OAuth2 flow from the plugin settings, with the `get-tokens` script as a command-line fallback — ships in this version. Remaining planned work (e.g. live-hardware verification) is tracked in [`ROADMAP.md`](ROADMAP.md).
 
 ### Quality gates
 

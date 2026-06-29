@@ -96,6 +96,17 @@ export interface AuthorizationCodeExchangeOptions {
  */
 export declare function buildAuthorizeUrl(consumerKey: string, redirectUri: string): string;
 /**
+ * Pull the one-time authorization `code` out of whatever the user pastes back
+ * after approving access in the browser. Accepts either the bare `code` or the
+ * full redirect URL (e.g. `http://localhost:8581/oauth/callback?code=...&...`),
+ * so the account-linking UI can be forgiving about exactly what is pasted.
+ *
+ * Throws a {@link ValidationError} when no usable code is present, or when the
+ * URL carries an OAuth `error` instead of a code. The pasted value (which may
+ * contain a code) is never echoed back in the thrown message.
+ */
+export declare function extractAuthorizationCode(input: string): string;
+/**
  * Exchange a one-time authorization `code` for the initial access/refresh token
  * pair (the `grant_type=authorization_code` leg of the OAuth2 flow). This is the
  * tested core of the `get-tokens` helper; the returned `refresh_token` is what a

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    .resideo-link-card { margin-bottom: 1.5rem; }
+    .resideo-step { margin-top: 1rem; }
+    .resideo-step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      background: var(--primary, #5d5dd6);
+      color: #fff;
+      font-size: 0.8rem;
+      margin-right: 0.4rem;
+    }
+    .resideo-hint { font-size: 0.85rem; }
+    #resideoAuthUrl { word-break: break-all; }
+  </style>
+</head>
+
+<body>
+  <div class="card resideo-link-card">
+    <div class="card-body">
+      <h4 class="card-title">Link your Resideo account</h4>
+      <p class="resideo-hint text-muted">
+        This connects the plugin to your Resideo / Honeywell Home account using OAuth2. You will need a Resideo
+        <em>developer</em> application (created at
+        <a href="https://developer.honeywellhome.com/user" target="_blank" rel="noopener">developer.honeywellhome.com</a>)
+        for the Consumer Key and Secret below. The plugin only ever stores OAuth tokens, never your account password.
+      </p>
+
+      <div id="resideoLinked" class="alert alert-success" style="display:none">
+        Account linked. A refresh token is saved in your configuration. Re-link below only if you rotate your
+        credentials or sign in to a different account.
+      </div>
+
+      <div class="form-group">
+        <label for="resideoKey">Consumer Key (API Key)</label>
+        <input id="resideoKey" type="text" class="form-control" autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="form-group">
+        <label for="resideoSecret">Consumer Secret (API Secret)</label>
+        <input id="resideoSecret" type="password" class="form-control" autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="form-group">
+        <label for="resideoRedirect">Redirect URL</label>
+        <input id="resideoRedirect" type="text" class="form-control" autocomplete="off" spellcheck="false">
+        <small class="form-text text-muted resideo-hint">
+          Must match the Callback URL registered on your Resideo developer application, byte-for-byte. The default
+          below is fine for most setups; you do not need anything running at this address.
+        </small>
+      </div>
+
+      <div class="resideo-step">
+        <div><span class="resideo-step-num">1</span><strong>Sign in &amp; approve</strong></div>
+        <p class="resideo-hint text-muted">
+          Opens Resideo's sign-in page in a new tab. After you approve access, your browser is redirected to the
+          Redirect URL above with a one-time code attached. The page may show an error or a blank page &mdash; that is
+          expected; nothing needs to be listening there.
+        </p>
+        <button id="resideoOpenAuth" type="button" class="btn btn-primary">Open Resideo sign-in</button>
+        <div id="resideoAuthFallback" class="resideo-hint text-muted" style="display:none; margin-top:0.5rem">
+          If the tab did not open, use this link:
+          <a id="resideoAuthUrl" href="#" target="_blank" rel="noopener"></a>
+        </div>
+      </div>
+
+      <div id="resideoStep2" class="resideo-step" style="display:none">
+        <div><span class="resideo-step-num">2</span><strong>Paste the result</strong></div>
+        <p class="resideo-hint text-muted">
+          Copy the entire address-bar URL from the redirected tab (or just the <code>code</code> value) and paste it
+          here, then link.
+        </p>
+        <div class="form-group">
+          <label for="resideoPasted">Authorization code or redirect URL</label>
+          <input id="resideoPasted" type="text" class="form-control" autocomplete="off" spellcheck="false"
+            placeholder="http://localhost:8581/oauth/callback?code=...">
+        </div>
+        <button id="resideoLink" type="button" class="btn btn-success">Link account</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (async () => {
+      const DEFAULT_REDIRECT_URI = 'http://localhost:8581/oauth/callback'
+      const byId = id => document.getElementById(id)
+
+      const keyEl = byId('resideoKey')
+      const secretEl = byId('resideoSecret')
+      const redirectEl = byId('resideoRedirect')
+      const openAuthBtn = byId('resideoOpenAuth')
+      const authFallback = byId('resideoAuthFallback')
+      const authUrlLink = byId('resideoAuthUrl')
+      const step2 = byId('resideoStep2')
+      const pastedEl = byId('resideoPasted')
+      const linkBtn = byId('resideoLink')
+      const linkedBadge = byId('resideoLinked')
+
+      const trimmed = el => (el.value || '').trim()
+
+      const setLinkedBadge = () => {
+        const cfg = currentConfig()
+        const linked = Boolean(cfg && cfg.credentials && cfg.credentials.refreshToken)
+        linkedBadge.style.display = linked ? 'block' : 'none'
+      }
+
+      // Returns the (possibly newly-created) first config block, kept current.
+      let config = []
+      const currentConfig = () => config[0]
+      const ensureBlock = () => {
+        if (!config.length) {
+          config.push({ name: 'MyResideo' })
+        }
+        if (!config[0].credentials) {
+          config[0].credentials = {}
+        }
+        return config[0]
+      }
+
+      try {
+        config = await homebridge.getPluginConfig()
+      } catch (err) {
+        homebridge.toast.error(err.message, 'Could not read plugin config')
+        config = []
+      }
+      ensureBlock()
+
+      keyEl.value = currentConfig().credentials.consumerKey || ''
+      secretEl.value = currentConfig().credentials.consumerSecret || ''
+      redirectEl.value = DEFAULT_REDIRECT_URI
+      setLinkedBadge()
+
+      // Render the schema-generated form (polling, sensors, per-device options)
+      // beneath this card, and keep our in-memory config in step with edits.
+      homebridge.showSchemaForm()
+      homebridge.addEventListener('configChanged', event => {
+        if (Array.isArray(event.data)) {
+          config = event.data
+          ensureBlock()
+        }
+      })
+
+      openAuthBtn.addEventListener('click', async () => {
+        const consumerKey = trimmed(keyEl)
+        const redirectUri = trimmed(redirectEl)
+        if (!consumerKey || !redirectUri) {
+          homebridge.toast.error('Enter your Consumer Key and a Redirect URL first.', 'Missing details')
+          return
+        }
+        homebridge.showSpinner()
+        try {
+          const res = await homebridge.request('/authorize-url', { consumerKey, redirectUri })
+          authUrlLink.href = res.authorizeUrl
+          authUrlLink.textContent = res.authorizeUrl
+          authFallback.style.display = 'block'
+          step2.style.display = 'block'
+          window.open(res.authorizeUrl, '_blank', 'noopener')
+        } catch (err) {
+          homebridge.toast.error(err.message, 'Could not start sign-in')
+        } finally {
+          homebridge.hideSpinner()
+        }
+      })
+
+      linkBtn.addEventListener('click', async () => {
+        const consumerKey = trimmed(keyEl)
+        const consumerSecret = trimmed(secretEl)
+        const redirectUri = trimmed(redirectEl)
+        const pastedValue = trimmed(pastedEl)
+        if (!consumerKey || !consumerSecret || !redirectUri) {
+          homebridge.toast.error('Enter your Consumer Key, Secret and Redirect URL.', 'Missing details')
+          return
+        }
+        if (!pastedValue) {
+          homebridge.toast.error('Paste the code or redirect URL from the sign-in tab.', 'Nothing to link')
+          return
+        }
+        homebridge.showSpinner()
+        try {
+          const tokens = await homebridge.request('/exchange-code', {
+            consumerKey,
+            consumerSecret,
+            redirectUri,
+            pastedValue,
+          })
+          const block = ensureBlock()
+          block.credentials = Object.assign({}, block.credentials, {
+            consumerKey,
+            consumerSecret,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+          })
+          await homebridge.updatePluginConfig(config)
+          await homebridge.savePluginConfig()
+          pastedEl.value = ''
+          setLinkedBadge()
+          homebridge.toast.success('Account linked and tokens saved. Restart Homebridge to apply.', 'MyResideo')
+        } catch (err) {
+          homebridge.toast.error(err.message, 'Linking failed')
+        } finally {
+          homebridge.hideSpinner()
+        }
+      })
+    })()
+  </script>
+</body>
+
+</html>

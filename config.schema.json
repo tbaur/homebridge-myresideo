@@ -2,7 +2,9 @@
   "pluginAlias": "MyResideo",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Homebridge plugin for Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors. Link your account in the plugin settings to obtain credentials.",
+  "customUi": true,
+  "customUiPath": "./homebridge-ui",
+  "headerDisplay": "Homebridge plugin for Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors. Use the **Link your Resideo account** panel above to sign in and populate your credentials.",
   "footerDisplay": "For help, see the [README](https://github.com/tbaur/homebridge-myresideo#readme).",
   "schema": {
     "type": "object",
