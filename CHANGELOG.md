@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.12](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.11...v0.1.12) (2026-06-29)
+
+
+### Bug Fixes
+
+* release transport sockets promptly and bump nock to 14 ([#32](https://github.com/tbaur/homebridge-myresideo/issues/32)) ([200b948](https://github.com/tbaur/homebridge-myresideo/commit/200b948676148502e347b453e253379eb93c621d))
+
 ## [0.1.11](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.10...v0.1.11) (2026-06-29)
 
 
