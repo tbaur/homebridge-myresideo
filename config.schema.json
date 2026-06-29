@@ -72,5 +72,39 @@
         }
       }
     }
-  }
+  },
+  "layout": [
+    {
+      "type": "fieldset",
+      "title": "General",
+      "expandable": false,
+      "items": [
+        "name",
+        "options.refreshRate",
+        "options.freezeThresholdCelsius"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Per-Device Options",
+      "description": "Optional per-detector overrides. Leave this empty to apply the settings above to every detector.",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "options.devices",
+          "type": "tabarray",
+          "title": "{{ value.name || value.deviceID || 'New device override' }}",
+          "items": [
+            "options.devices[].deviceID",
+            "options.devices[].name",
+            "options.devices[].hideTemperatureSensor",
+            "options.devices[].hideHumiditySensor",
+            "options.devices[].enableFreezeSensor",
+            "options.devices[].freezeThresholdCelsius"
+          ]
+        }
+      ]
+    }
+  ]
 }

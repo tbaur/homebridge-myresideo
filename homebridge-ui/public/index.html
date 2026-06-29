@@ -132,42 +132,6 @@
         return config[0]
       }
 
-      const hasText = value => typeof value === 'string' && value.trim().length > 0
-
-      // A per-device entry only counts once it configures something; a row with
-      // no deviceID and no overrides is an empty leftover.
-      const isMeaningfulDevice = device => {
-        if (!device || typeof device !== 'object') {
-          return false
-        }
-        return hasText(device.deviceID)
-          || hasText(device.name)
-          || typeof device.freezeThresholdCelsius === 'number'
-          || device.hideTemperatureSensor === true
-          || device.hideHumiditySensor === true
-          || device.enableFreezeSensor === true
-      }
-
-      // Drop blank per-device rows left by a previous session so the schema form
-      // renders the section collapsed (just the "Add" button) rather than a
-      // pre-expanded empty card. Returns true when something was removed.
-      const pruneEmptyDevices = block => {
-        const devices = block && block.options && block.options.devices
-        if (!Array.isArray(devices)) {
-          return false
-        }
-        const kept = devices.filter(isMeaningfulDevice)
-        if (kept.length === devices.length) {
-          return false
-        }
-        if (kept.length) {
-          block.options.devices = kept
-        } else {
-          delete block.options.devices
-        }
-        return true
-      }
-
       // config-ui-x's `config.save` handler passes the un-awaited Promise from
       // its async save straight to window.postMessage. Structured-clone cannot
       // serialize a Promise, so the postMessage throws and the acknowledgement
@@ -200,19 +164,9 @@
       redirectEl.value = DEFAULT_REDIRECT_URI
       setLinkedBadge()
 
-      // Tidy any blank per-device rows before the form renders, then persist so
-      // the leftover does not reappear on the next visit.
-      if (pruneEmptyDevices(currentConfig())) {
-        try {
-          await homebridge.updatePluginConfig(config)
-          await persistConfig()
-        } catch (err) {
-          homebridge.toast.error(err.message, 'Could not tidy plugin config')
-        }
-      }
-
-      // Render the schema-generated form (polling, sensors, per-device options)
-      // beneath this card, and keep our in-memory config in step with edits.
+      // Render the schema-generated form (general options + the collapsed
+      // per-device fieldset defined in config.schema.json's layout) beneath this
+      // card, and keep our in-memory config in step with edits.
       homebridge.showSchemaForm()
       homebridge.addEventListener('configChanged', event => {
         if (Array.isArray(event.data)) {
