@@ -151,6 +151,25 @@ describe('discovery and polling', () => {
     handlers.shutdown()
   })
 
+  it('logs a one-line state summary for each discovered detector at startup', async () => {
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    expect(log.info).toHaveBeenCalledWith('Discovered 1 water leak detector(s)')
+    expect(log.info).toHaveBeenCalledWith(
+      'Water Leak Detector: online | dry | temp n/a | humidity n/a | battery n/a',
+    )
+
+    handlers.shutdown()
+  })
+
   it('unregisters stale cached accessories that are no longer in the account', async () => {
     mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
     mockGetDetector.mockResolvedValue(leakDevice)
@@ -296,6 +315,54 @@ describe('accessory re-discovery', () => {
     expect(cached.displayName).toBe('Kitchen')
     expect(api.updatePlatformAccessories).toHaveBeenCalledWith([cached])
     expect(api.registerPlatformAccessories).not.toHaveBeenCalled()
+    // The boot summary is logged for cached accessories too, using the resolved name.
+    expect(log.info).toHaveBeenCalledWith('Kitchen: online | dry | temp n/a | humidity n/a | battery n/a')
+
+    handlers.shutdown()
+  })
+})
+
+describe('boot state summary', () => {
+  const summaryLineCount = (log: Logging, name: string): number =>
+    (log.info as jest.Mock).mock.calls
+      .concat((log.warn as jest.Mock).mock.calls)
+      .filter(call => String(call[0]).startsWith(`${name}:`)).length
+
+  it('logs the boot summary at warn when a detector is leaking at startup', async () => {
+    const leaking: WaterLeakDetector = { ...leakDevice, waterPresent: true }
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leaking] }])
+    mockGetDetector.mockResolvedValue(leaking)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    expect(log.warn).toHaveBeenCalledWith(
+      'Water Leak Detector: online | LEAK DETECTED | temp n/a | humidity n/a | battery n/a',
+    )
+
+    handlers.shutdown()
+  })
+
+  it('logs the boot summary once per device, not again on a later discovery pass', async () => {
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    const platform = new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+    expect(summaryLineCount(log, 'Water Leak Detector')).toBe(1)
+
+    // Re-registering the same detector (as a discovery retry would) must not re-log.
+    const internal = platform as unknown as { registerDevice: (d: WaterLeakDetector, loc: number) => void }
+    internal.registerDevice(leakDevice, 1)
+    expect(summaryLineCount(log, 'Water Leak Detector')).toBe(1)
 
     handlers.shutdown()
   })

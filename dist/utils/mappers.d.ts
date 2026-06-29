@@ -7,7 +7,7 @@
  * @fileoverview Pure helper functions for mapping Honeywell device state to
  * HomeKit-friendly values. Kept side-effect free so they are trivially testable.
  */
-import type { WaterLeakDetector } from '../types';
+import type { LeakDetectorOptions, WaterLeakDetector } from '../types';
 /** True when liquid water is currently detected. */
 export declare function isLeakDetected(device: Pick<WaterLeakDetector, 'waterPresent'>): boolean;
 /** True when battery percentage is at or below the low-battery threshold. */
@@ -51,4 +51,17 @@ export declare function activeAlarmTypes(device: Pick<WaterLeakDetector, 'curren
  * are optimistically treated as active (the API omits them for healthy devices).
  */
 export declare function isDeviceActive(device: Pick<WaterLeakDetector, 'isAlive' | 'isDeviceOffline' | 'hasDeviceCheckedIn'>): boolean;
+/**
+ * Build a one-line, human-readable summary of a detector's state for the startup
+ * discovery log. Healthy conditions render lowercase (`online`, `dry`); problems
+ * (`OFFLINE`, `LEAK DETECTED`, `(LOW)`, `(FREEZING …)`, active alarms) are
+ * capitalized so they stand out when scanning the boot log. Missing readings
+ * render as `n/a` rather than a misleading default. The freeze annotation is
+ * only shown when the freeze sensor is enabled and a real temperature backs it,
+ * matching what is actually exposed to HomeKit. Carries no account data.
+ *
+ * Segments are pipe-delimited to match the diagnostics `Health:` line, so the
+ * boot summary and the periodic health report read consistently in the log.
+ */
+export declare function describeDeviceState(device: WaterLeakDetector, options: Pick<LeakDetectorOptions, 'enableFreezeSensor' | 'freezeThresholdCelsius'>, defaultFreezeThreshold?: number): string;
 //# sourceMappingURL=mappers.d.ts.map

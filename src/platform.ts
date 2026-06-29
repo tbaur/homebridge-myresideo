@@ -51,6 +51,8 @@ import type {
   WaterLeakDetector,
 } from './types'
 import {
+  describeDeviceState,
+  hasActiveAlarms,
   isDeviceActive,
   isLeakDetected,
   isLowBattery,
@@ -87,6 +89,9 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   private readonly config: ResideoPlatformConfig
   private readonly handlers = new Map<string, LeakSensorAccessory>()
   private readonly locationByDevice = new Map<string, number>()
+  /** Device IDs whose one-line boot state summary has already been logged, so a
+   *  discovery retry that re-registers the same detectors does not re-log it. */
+  private readonly bootSummaryLogged = new Set<string>()
 
   private tokenManager?: TokenManager
   private client?: ResideoApiClient
@@ -320,6 +325,23 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
 
     const handler = new LeakSensorAccessory(this, accessory, options, defaultFreezeThreshold)
     this.handlers.set(device.deviceID, handler)
+
+    // One-line state summary at boot so the log shows each detector's condition,
+    // not just the discovered count. Healthy devices read calmly; problems are
+    // capitalized in the summary so they stand out (see describeDeviceState). Logged
+    // once per device (the accessory establishes its baseline silently, so this is
+    // the single startup state report) and never re-logged on a discovery retry.
+    if (!this.bootSummaryLogged.has(device.deviceID)) {
+      this.bootSummaryLogged.add(device.deviceID)
+      const summary = `${displayName}: ${describeDeviceState(device, options, defaultFreezeThreshold)}`
+      // A leak or active alarm at startup is an actionable condition, so surface it
+      // at warn (matching the prior first-poll behavior); routine state stays info.
+      if (isLeakDetected(device) || hasActiveAlarms(device)) {
+        this.log.warn(summary)
+      } else {
+        this.log.info(summary)
+      }
+    }
   }
 
   /** Unregister cached accessories that are no longer present in the account. */
@@ -342,6 +364,9 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       if (device?.deviceID) {
         this.handlers.delete(device.deviceID)
         this.locationByDevice.delete(device.deviceID)
+        // Forget the boot-summary marker so a detector that later returns to the
+        // account is reported again rather than being silently re-added.
+        this.bootSummaryLogged.delete(device.deviceID)
       }
       this.log.info(`Removed stale water leak detector: ${accessory.displayName}`)
     }

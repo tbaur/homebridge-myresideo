@@ -9,7 +9,7 @@
  */
 
 import { DEFAULT_FREEZE_THRESHOLD_C, LEAK_DETECTOR_DEVICE_CLASS, LOW_BATTERY_THRESHOLD } from '../settings'
-import type { WaterLeakDetector } from '../types'
+import type { LeakDetectorOptions, WaterLeakDetector } from '../types'
 
 /** True when liquid water is currently detected. */
 export function isLeakDetected(device: Pick<WaterLeakDetector, 'waterPresent'>): boolean {
@@ -112,4 +112,51 @@ export function isDeviceActive(
   return device.isAlive !== false
     && device.isDeviceOffline !== true
     && device.hasDeviceCheckedIn !== false
+}
+
+/**
+ * Build a one-line, human-readable summary of a detector's state for the startup
+ * discovery log. Healthy conditions render lowercase (`online`, `dry`); problems
+ * (`OFFLINE`, `LEAK DETECTED`, `(LOW)`, `(FREEZING …)`, active alarms) are
+ * capitalized so they stand out when scanning the boot log. Missing readings
+ * render as `n/a` rather than a misleading default. The freeze annotation is
+ * only shown when the freeze sensor is enabled and a real temperature backs it,
+ * matching what is actually exposed to HomeKit. Carries no account data.
+ *
+ * Segments are pipe-delimited to match the diagnostics `Health:` line, so the
+ * boot summary and the periodic health report read consistently in the log.
+ */
+export function describeDeviceState(
+  device: WaterLeakDetector,
+  options: Pick<LeakDetectorOptions, 'enableFreezeSensor' | 'freezeThresholdCelsius'>,
+  defaultFreezeThreshold?: number,
+): string {
+  const parts: string[] = [
+    isDeviceActive(device) ? 'online' : 'OFFLINE',
+    isLeakDetected(device) ? 'LEAK DETECTED' : 'dry',
+  ]
+
+  const temperature = device.currentSensorReadings?.temperature
+  if (typeof temperature === 'number' && Number.isFinite(temperature)) {
+    const threshold = resolveFreezeThreshold(device, options.freezeThresholdCelsius ?? defaultFreezeThreshold)
+    const freezing = options.enableFreezeSensor === true && isFreezing(temperature, threshold)
+    parts.push(`${temperature}°C${freezing ? ` (FREEZING ≤ ${threshold}°C)` : ''}`)
+  } else {
+    parts.push('temp n/a')
+  }
+
+  const humidity = device.currentSensorReadings?.humidity
+  parts.push(typeof humidity === 'number' && Number.isFinite(humidity) ? `${humidity}% RH` : 'humidity n/a')
+
+  const battery = clampBatteryLevel(device.batteryRemaining)
+  parts.push(battery === undefined
+    ? 'battery n/a'
+    : `battery ${battery}%${isLowBattery(device.batteryRemaining) ? ' (LOW)' : ''}`)
+
+  const alarms = activeAlarmTypes(device)
+  if (alarms.length > 0) {
+    parts.push(`alarms: ${alarms.join(', ')}`)
+  }
+
+  return parts.join(' | ')
 }

@@ -33,6 +33,12 @@ class LeakSensorAccessory {
     lastAlarmSignature;
     /** Last observed state, so transitions are logged once instead of every poll. */
     prev;
+    /**
+     * True until the first poll completes. The first observation establishes the
+     * baseline silently because the platform logs a one-line boot state summary per
+     * device; only subsequent *transitions* are logged here.
+     */
+    firstObservation = true;
     constructor(platform, accessory, options, defaultFreezeThreshold) {
         this.platform = platform;
         this.accessory = accessory;
@@ -134,6 +140,7 @@ class LeakSensorAccessory {
             freezeThreshold: freeze.threshold,
             humidity,
         });
+        this.firstObservation = false;
     }
     /**
      * Update the Battery service. Only asserts a level when the API reports one;
@@ -177,6 +184,12 @@ class LeakSensorAccessory {
      * the same alarms on every poll. Alarm type strings carry no account data.
      */
     logActiveAlarms(device, alarmActive) {
+        if (this.firstObservation) {
+            // Record the baseline silently: the platform's boot summary already reports
+            // any alarm active at startup, so only later changes should log here.
+            this.lastAlarmSignature = alarmActive ? (0, utils_1.activeAlarmTypes)(device).join(',') : undefined;
+            return;
+        }
         if (!alarmActive) {
             if (this.lastAlarmSignature !== undefined) {
                 this.platform.log.info(`${this.displayName}: alarms cleared`);
@@ -197,48 +210,50 @@ class LeakSensorAccessory {
      * Log human-meaningful state transitions once when they flip (so the log
      * reflects what changed each poll, not the unchanging baseline), and emit a
      * full per-poll snapshot at debug level. The first poll establishes the
-     * baseline silently for a healthy device, but surfaces an already-abnormal
-     * state (leak/offline/low battery/freezing) so startup problems are visible.
+     * baseline silently (for healthy *and* abnormal devices): the platform logs a
+     * one-line boot state summary per device at startup, so transitions are only
+     * reported here on later polls to avoid duplicating that startup report.
      */
     logObservedState(state) {
         const prev = this.prev;
         const name = this.displayName;
         const { log } = this.platform;
-        if (state.leak && !prev?.leak) {
-            log.warn(`${name}: LEAK DETECTED`);
-        }
-        else if (!state.leak && prev?.leak) {
-            log.info(`${name}: leak cleared`);
-        }
-        if (!state.online && (prev === undefined || prev.online)) {
-            log.info(`${name}: went offline`);
-        }
-        else if (state.online && prev !== undefined && !prev.online) {
-            log.info(`${name}: back online`);
-        }
-        if (state.lowBattery !== undefined) {
-            if (state.lowBattery && !prev?.lowBattery) {
-                log.info(`${name}: low battery (${state.batteryLevel}%)`);
+        // Only after a baseline exists; the first observation is the silent baseline.
+        if (!this.firstObservation && prev !== undefined) {
+            if (state.leak && !prev.leak) {
+                log.warn(`${name}: LEAK DETECTED`);
             }
-            else if (!state.lowBattery && prev?.lowBattery) {
-                log.info(`${name}: battery recovered (${state.batteryLevel}%)`);
+            else if (!state.leak && prev.leak) {
+                log.info(`${name}: leak cleared`);
             }
-        }
-        if (state.freezing !== undefined) {
-            if (state.freezing && !prev?.freezing) {
-                log.info(`${name}: freezing (${state.temperature}°C ≤ ${state.freezeThreshold}°C)`);
+            if (!state.online && prev.online) {
+                log.info(`${name}: went offline`);
             }
-            else if (!state.freezing && prev?.freezing) {
-                log.info(`${name}: above freeze threshold (${state.temperature}°C)`);
+            else if (state.online && !prev.online) {
+                log.info(`${name}: back online`);
             }
-        }
-        // Count a diagnostics state change only after a baseline exists, so the
-        // first poll establishing initial state is not itself reported as a change.
-        if (prev !== undefined && (state.leak !== prev.leak
-            || state.online !== prev.online
-            || state.lowBattery !== prev.lowBattery
-            || state.freezing !== prev.freezing)) {
-            this.platform.recordStateChange();
+            if (state.lowBattery !== undefined) {
+                if (state.lowBattery && !prev.lowBattery) {
+                    log.info(`${name}: low battery (${state.batteryLevel}%)`);
+                }
+                else if (!state.lowBattery && prev.lowBattery) {
+                    log.info(`${name}: battery recovered (${state.batteryLevel}%)`);
+                }
+            }
+            if (state.freezing !== undefined) {
+                if (state.freezing && !prev.freezing) {
+                    log.info(`${name}: freezing (${state.temperature}°C ≤ ${state.freezeThreshold}°C)`);
+                }
+                else if (!state.freezing && prev.freezing) {
+                    log.info(`${name}: above freeze threshold (${state.temperature}°C)`);
+                }
+            }
+            if (state.leak !== prev.leak
+                || state.online !== prev.online
+                || state.lowBattery !== prev.lowBattery
+                || state.freezing !== prev.freezing) {
+                this.platform.recordStateChange();
+            }
         }
         this.prev = {
             leak: state.leak,

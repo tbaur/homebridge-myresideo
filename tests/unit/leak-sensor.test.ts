@@ -139,13 +139,12 @@ describe('LeakSensorAccessory', () => {
   })
 
   it('faults the leak service on an active alarm while still reporting active', () => {
-    const { accessory, log } = build(baseDevice({
+    const { accessory } = build(baseDevice({
       currentAlarms: [{ type: 'HighHumidity', created: '2026-01-01T00:00:00' }],
     }))
     const leak = accessory.services.get(Service.LeakSensor)
     expect(latestValue(leak, Characteristic.StatusActive)).toBe(true)
     expect(latestValue(leak, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('HighHumidity'))
   })
 
   it('clears the leak-service fault and logs once across unchanged polls', () => {
@@ -261,9 +260,20 @@ describe('LeakSensorAccessory state-transition logging', () => {
     expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('poll ok'))
   })
 
-  it('surfaces an already-abnormal state on the first poll', () => {
-    const { log } = build(baseDevice({ waterPresent: true }))
-    expect(log.warn).toHaveBeenCalledWith('Test Detector: LEAK DETECTED')
+  it('stays silent on an abnormal initial poll (the platform boot summary reports startup state)', () => {
+    // The first observation is a silent baseline even when abnormal; the platform
+    // emits a one-line boot summary per device, so transitions only log later.
+    const { log } = build(baseDevice({ waterPresent: true, currentAlarms: [{ type: 'HighHumidity' }] }))
+    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.info).not.toHaveBeenCalled()
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('poll ok'))
+  })
+
+  it('logs an alarm that first appears on a later poll, not the unchanged baseline', () => {
+    const { handler, log } = build(healthy())
+    handler.updateStatus(baseDevice({ currentAlarms: [{ type: 'HighHumidity' }], batteryRemaining: 90 }))
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('HighHumidity'))
+    expect(log.warn).toHaveBeenCalledTimes(1)
   })
 
   it('logs leak detected (warn) and cleared (info) on transitions only', () => {

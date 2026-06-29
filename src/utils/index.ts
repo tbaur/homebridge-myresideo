@@ -17,6 +17,7 @@ export {
   isDeviceActive,
   hasActiveAlarms,
   activeAlarmTypes,
+  describeDeviceState,
 } from './mappers'
 
 export { backoffMs, delay } from './backoff'

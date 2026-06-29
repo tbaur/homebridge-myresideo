@@ -18,6 +18,9 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     private readonly config;
     private readonly handlers;
     private readonly locationByDevice;
+    /** Device IDs whose one-line boot state summary has already been logged, so a
+     *  discovery retry that re-registers the same detectors does not re-log it. */
+    private readonly bootSummaryLogged;
     private tokenManager?;
     private client?;
     private pollTimer?;

@@ -32,6 +32,12 @@ export declare class LeakSensorAccessory {
     private lastAlarmSignature?;
     /** Last observed state, so transitions are logged once instead of every poll. */
     private prev?;
+    /**
+     * True until the first poll completes. The first observation establishes the
+     * baseline silently because the platform logs a one-line boot state summary per
+     * device; only subsequent *transitions* are logged here.
+     */
+    private firstObservation;
     constructor(platform: ResideoPlatform, accessory: PlatformAccessory, options: LeakDetectorOptions, defaultFreezeThreshold?: number);
     private get displayName();
     /**
@@ -63,8 +69,9 @@ export declare class LeakSensorAccessory {
      * Log human-meaningful state transitions once when they flip (so the log
      * reflects what changed each poll, not the unchanging baseline), and emit a
      * full per-poll snapshot at debug level. The first poll establishes the
-     * baseline silently for a healthy device, but surfaces an already-abnormal
-     * state (leak/offline/low battery/freezing) so startup problems are visible.
+     * baseline silently (for healthy *and* abnormal devices): the platform logs a
+     * one-line boot state summary per device at startup, so transitions are only
+     * reported here on later polls to avoid duplicating that startup report.
      */
     private logObservedState;
     /**
