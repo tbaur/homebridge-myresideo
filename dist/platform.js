@@ -42,6 +42,9 @@ class ResideoPlatform {
     config;
     handlers = new Map();
     locationByDevice = new Map();
+    /** Device IDs whose one-line boot state summary has already been logged, so a
+     *  discovery retry that re-registers the same detectors does not re-log it. */
+    bootSummaryLogged = new Set();
     tokenManager;
     client;
     pollTimer;
@@ -249,6 +252,23 @@ class ResideoPlatform {
         }
         const handler = new leak_sensor_1.LeakSensorAccessory(this, accessory, options, defaultFreezeThreshold);
         this.handlers.set(device.deviceID, handler);
+        // One-line state summary at boot so the log shows each detector's condition,
+        // not just the discovered count. Healthy devices read calmly; problems are
+        // capitalized in the summary so they stand out (see describeDeviceState). Logged
+        // once per device (the accessory establishes its baseline silently, so this is
+        // the single startup state report) and never re-logged on a discovery retry.
+        if (!this.bootSummaryLogged.has(device.deviceID)) {
+            this.bootSummaryLogged.add(device.deviceID);
+            const summary = `${displayName}: ${(0, utils_1.describeDeviceState)(device, options, defaultFreezeThreshold)}`;
+            // A leak or active alarm at startup is an actionable condition, so surface it
+            // at warn (matching the prior first-poll behavior); routine state stays info.
+            if ((0, utils_1.isLeakDetected)(device) || (0, utils_1.hasActiveAlarms)(device)) {
+                this.log.warn(summary);
+            }
+            else {
+                this.log.info(summary);
+            }
+        }
     }
     /** Unregister cached accessories that are no longer present in the account. */
     pruneStaleAccessories(currentDeviceIds) {
@@ -269,6 +289,9 @@ class ResideoPlatform {
             if (device?.deviceID) {
                 this.handlers.delete(device.deviceID);
                 this.locationByDevice.delete(device.deviceID);
+                // Forget the boot-summary marker so a detector that later returns to the
+                // account is reported again rather than being silently re-added.
+                this.bootSummaryLogged.delete(device.deviceID);
             }
             this.log.info(`Removed stale water leak detector: ${accessory.displayName}`);
         }

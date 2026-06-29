@@ -6,7 +6,7 @@
  *
  * @fileoverview Utility barrel exports.
  */
-export { isLeakDetected, isLowBattery, resolveFreezeThreshold, isFreezing, clampBatteryLevel, isWaterLeakDetector, isDeviceActive, hasActiveAlarms, activeAlarmTypes, } from './mappers';
+export { isLeakDetected, isLowBattery, resolveFreezeThreshold, isFreezing, clampBatteryLevel, isWaterLeakDetector, isDeviceActive, hasActiveAlarms, activeAlarmTypes, describeDeviceState, } from './mappers';
 export { backoffMs, delay } from './backoff';
 export { sanitizeString, sanitizeError, maskToken, } from './sanitizers';
 export { validateConfig, sanitizeFreezeThreshold } from './validators';
