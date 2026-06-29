@@ -27,6 +27,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Self-Healing Discovery** — A transient outage at startup is retried with capped backoff instead of leaving the plugin inert until a restart
 - **Clear Re-Link Signaling** — An expired/invalid refresh token, or rejected API credentials, produce a clear, actionable log message instead of a silent failure loop
 - **Readable Logs** — Each poll logs only what changed (leak, online/offline, low battery, freeze, alarms) once per transition, so the log reflects events without per-cycle noise; a full snapshot is available at debug level
+- **Health Diagnostics** *(opt-in)* — Set `diagnosticsInterval` to log a periodic health report: API latency (p50/p95), poll success/failure, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup with reasons. Healthy↔degraded transitions are logged as they happen, and `structuredLogs` adds a machine-readable JSON line alongside the human summary
 - **Secret Hygiene** — Credentials are never logged; the `apikey` is redacted from any logged URLs
 
 ### Quality
@@ -97,6 +98,8 @@ Your detectors are discovered at startup and appear in the Home app automaticall
 | `credentials.accessToken` | | OAuth2 access token (set when linking your account) |
 | `options.refreshRate` | | Seconds between status polls (default: 120, minimum: 30) |
 | `options.freezeThresholdCelsius` | | Default freeze threshold in °C. Leave unset to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence. |
+| `options.diagnosticsInterval` | | Seconds between opt-in health-report log lines; `0` (default) disables it. A non-zero value below 30 is clamped up to 30. |
+| `options.structuredLogs` | | When diagnostics are enabled, also emit a machine-readable JSON line alongside the human-readable summary (default: false) |
 | `options.devices[]` | | Per-device overrides (see below) |
 
 Per-device overrides (`options.devices[]`), keyed by `deviceID`:

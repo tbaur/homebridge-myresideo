@@ -17,6 +17,10 @@ src/
     index.ts          Barrel exports.
   devices/
     leak-sensor.ts    HomeKit accessory: leak/temp/humidity/battery/freeze.
+  diagnostics/
+    collector.ts      Opt-in health/activity collector: accumulates counters +
+                      a latency window and renders heartbeat/snapshot reports
+                      and a healthy/degraded rollup (no network I/O).
   utils/
     backoff.ts        Jittered exponential-backoff + delay helpers (shared).
     mappers.ts        Pure device-state → HomeKit mapping helpers.
@@ -53,6 +57,7 @@ This plugin talks to a **poll-based** REST API, so its resilience focuses on mak
 - **Bounded-concurrency polling** — devices are polled up to `POLL_DEVICE_CONCURRENCY` (4) at a time, with an in-flight guard that skips a tick if the previous cycle is still running.
 - **Stale-data handling** — missing temperature/humidity readings raise a `StatusFault` instead of silently retaining a stale value; a missing battery reading is not asserted as a misleading default.
 - **Polling cadence** — default 120s, configurable, clamped to a 30s minimum to avoid hammering the API.
+- **Opt-in diagnostics** — when `diagnosticsInterval > 0`, a `DiagnosticsCollector` accumulates in-memory counters (fed by client `metrics`/`onRetry` hooks, token-refresh callbacks, and poll-cycle results) and emits a periodic heartbeat plus boot/shutdown snapshots. Reads are synchronous and never touch the network; all emission is wrapped so a diagnostics failure can never crash the host. The config echo in snapshots is redacted (no credentials).
 
 ## Testing
 

@@ -51,6 +51,10 @@ export interface TokenManagerOptions {
   accessToken?: string
   /** Invoked whenever the API rotates the refresh token, so it can be persisted. */
   onRefreshToken?: (newRefreshToken: string) => Promise<void> | void
+  /** Optional diagnostics hook invoked after every successful token refresh. */
+  onRefreshSuccess?: () => void
+  /** Optional diagnostics hook invoked when a refresh ultimately fails. */
+  onRefreshFailure?: () => void
   logger?: AuthLogger
   /** Injectable clock (ms epoch). Defaults to {@link Date.now}. */
   now?: () => number
@@ -75,9 +79,13 @@ export class TokenManager {
    */
   private accessTokenIsOptimistic: boolean
 
+  private lastRefreshAt: number | null = null
+
   private readonly consumerKey: string
   private readonly consumerSecret: string
   private readonly onRefreshToken?: (token: string) => Promise<void> | void
+  private readonly onRefreshSuccess?: () => void
+  private readonly onRefreshFailure?: () => void
   private readonly logger?: AuthLogger
   private readonly now: () => number
   private readonly maxRefreshAttempts: number
@@ -90,6 +98,8 @@ export class TokenManager {
     this.accessToken = options.accessToken ?? null
     this.accessTokenIsOptimistic = Boolean(options.accessToken)
     this.onRefreshToken = options.onRefreshToken
+    this.onRefreshSuccess = options.onRefreshSuccess
+    this.onRefreshFailure = options.onRefreshFailure
     this.logger = options.logger
     this.now = options.now ?? Date.now
     this.maxRefreshAttempts = options.maxRefreshAttempts ?? MAX_TOKEN_REFRESH_ATTEMPTS
@@ -126,6 +136,22 @@ export class TokenManager {
     return this.refreshToken
   }
 
+  /**
+   * Synchronous, in-memory token health for diagnostics. `expiresInSec` is the
+   * remaining lifetime of the current access token (negative once past expiry),
+   * or `null` when the expiry is unknown — either no token has been obtained yet
+   * or an optimistic config-supplied token (whose true expiry the plugin cannot
+   * know) is still in use. `lastRefreshAt` is the epoch ms of the last successful
+   * refresh (`null` until the first refresh).
+   */
+  getStatus(): { expiresInSec: number | null, lastRefreshAt: number | null } {
+    const expiryKnown = this.accessToken !== null && this.expiresAt > 0
+    return {
+      expiresInSec: expiryKnown ? Math.round((this.expiresAt - this.now()) / 1000) : null,
+      lastRefreshAt: this.lastRefreshAt,
+    }
+  }
+
   private refresh(): Promise<string> {
     if (this.refreshInFlight) {
       return this.refreshInFlight
@@ -158,15 +184,18 @@ export class TokenManager {
       try {
         const token = await this.requestToken(formBody, basicAuth)
         this.applyToken(token)
+        this.lastRefreshAt = this.now()
         if (token.refresh_token && token.refresh_token !== this.refreshToken) {
           this.refreshToken = token.refresh_token
           await this.onRefreshToken?.(token.refresh_token)
           this.logger?.debug?.('Refresh token rotated and persisted')
         }
+        this.onRefreshSuccess?.()
         return this.accessToken as string
       } catch (err) {
         const isRetryable = err instanceof NetworkError || err instanceof TimeoutError
         if (!isRetryable || attempt === this.maxRefreshAttempts) {
+          this.onRefreshFailure?.()
           throw err
         }
         lastError = err
@@ -174,6 +203,7 @@ export class TokenManager {
         await delay(backoffMs(attempt))
       }
     }
+    this.onRefreshFailure?.()
     throw lastError instanceof Error ? lastError : new NetworkError('Token refresh failed')
   }
 

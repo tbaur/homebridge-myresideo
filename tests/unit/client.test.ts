@@ -144,4 +144,95 @@ describe('ResideoApiClient', () => {
     expect(capturedUrl).toContain('locationId=5555')
     expect(capturedUrl).toContain('apikey=my-api-key')
   })
+
+  describe('diagnostics hooks', () => {
+    it('reports one successful metric per networked attempt', async () => {
+      const metrics = jest.fn()
+      const transport = jest.fn().mockResolvedValue({ status: 200, body: JSON.stringify({ ok: true }) })
+      const client = new ResideoApiClient({
+        tokenManager: stubTokenManager(),
+        apikey: 'my-api-key',
+        transport,
+        metrics,
+      })
+
+      await client.get('https://api.honeywellhome.com/v2/locations', {})
+
+      expect(metrics).toHaveBeenCalledTimes(1)
+      expect(metrics).toHaveBeenCalledWith({ durationMs: expect.any(Number), ok: true })
+    })
+
+    it('reports a failed metric for a non-2xx response and for each retry', async () => {
+      const metrics = jest.fn()
+      const onRetry = jest.fn()
+      const transport = jest.fn()
+        .mockResolvedValueOnce({ status: 500, body: 'server error' })
+        .mockResolvedValueOnce({ status: 200, body: JSON.stringify({ ok: true }) })
+      const client = new ResideoApiClient({
+        tokenManager: stubTokenManager(),
+        apikey: 'my-api-key',
+        transport,
+        metrics,
+        onRetry,
+      })
+
+      await client.get('https://api.honeywellhome.com/v2/locations', {})
+
+      expect(metrics).toHaveBeenCalledTimes(2)
+      expect(metrics).toHaveBeenNthCalledWith(1, { durationMs: expect.any(Number), ok: false })
+      expect(metrics).toHaveBeenNthCalledWith(2, { durationMs: expect.any(Number), ok: true })
+      expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports a failed metric when a 200 response body cannot be parsed', async () => {
+      const metrics = jest.fn()
+      const transport = jest.fn().mockResolvedValue({ status: 200, body: 'not json' })
+      const client = new ResideoApiClient({
+        tokenManager: stubTokenManager(),
+        apikey: 'my-api-key',
+        transport,
+        metrics,
+      })
+
+      await expect(client.get('https://api.honeywellhome.com/v2/locations', {}))
+        .rejects.toBeInstanceOf(ApiParseError)
+      expect(metrics).toHaveBeenCalledTimes(1)
+      expect(metrics).toHaveBeenCalledWith({ durationMs: expect.any(Number), ok: false })
+    })
+
+    it('reports a failed metric when the transport throws', async () => {
+      const metrics = jest.fn()
+      const transport = jest.fn()
+        .mockRejectedValueOnce(new NetworkError('connection reset'))
+        .mockResolvedValueOnce({ status: 200, body: JSON.stringify({ ok: true }) })
+      const client = new ResideoApiClient({
+        tokenManager: stubTokenManager(),
+        apikey: 'my-api-key',
+        transport,
+        metrics,
+      })
+
+      await client.get('https://api.honeywellhome.com/v2/locations', {})
+
+      expect(metrics).toHaveBeenNthCalledWith(1, { durationMs: expect.any(Number), ok: false })
+      expect(metrics).toHaveBeenCalledTimes(2)
+    })
+
+    it('counts the 401 refresh-and-retry as a retry', async () => {
+      const onRetry = jest.fn()
+      const transport = jest.fn()
+        .mockResolvedValueOnce({ status: 401, body: 'unauthorized' })
+        .mockResolvedValueOnce({ status: 200, body: JSON.stringify({ ok: true }) })
+      const client = new ResideoApiClient({
+        tokenManager: stubTokenManager(),
+        apikey: 'my-api-key',
+        transport,
+        onRetry,
+      })
+
+      await client.get('https://api.honeywellhome.com/v2/locations', {})
+
+      expect(onRetry).toHaveBeenCalledTimes(1)
+    })
+  })
 })

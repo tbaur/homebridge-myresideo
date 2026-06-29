@@ -64,6 +64,33 @@ describe('validateConfig', () => {
     expect(result.warnings.some(w => w.includes('freezeThresholdCelsius'))).toBe(true)
   })
 
+  it('accepts diagnosticsInterval of 0 (disabled) without warning', () => {
+    const result = validateConfig(baseConfig({ options: { diagnosticsInterval: 0 } }))
+    expect(result.warnings.some(w => w.includes('diagnosticsInterval'))).toBe(false)
+  })
+
+  it('accepts a diagnosticsInterval at or above the minimum without warning', () => {
+    const result = validateConfig(baseConfig({ options: { diagnosticsInterval: 300 } }))
+    expect(result.warnings.some(w => w.includes('diagnosticsInterval'))).toBe(false)
+  })
+
+  it('warns when diagnosticsInterval is below the minimum (but non-zero)', () => {
+    const result = validateConfig(baseConfig({ options: { diagnosticsInterval: 5 } }))
+    expect(result.warnings.some(w => w.includes('diagnosticsInterval'))).toBe(true)
+  })
+
+  it('warns when diagnosticsInterval is negative', () => {
+    const result = validateConfig(baseConfig({ options: { diagnosticsInterval: -10 } }))
+    expect(result.warnings.some(w => w.includes('diagnosticsInterval'))).toBe(true)
+  })
+
+  it('warns when diagnosticsInterval is not a number', () => {
+    const result = validateConfig(baseConfig({
+      options: { diagnosticsInterval: 'often' as unknown as number },
+    }))
+    expect(result.warnings.some(w => w.includes('diagnosticsInterval'))).toBe(true)
+  })
+
   it('warns when a per-device freezeThresholdCelsius is out of range', () => {
     const result = validateConfig(baseConfig({
       options: { devices: [{ deviceID: 'dev-1', freezeThresholdCelsius: 999 }] },

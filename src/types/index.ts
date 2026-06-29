@@ -61,6 +61,13 @@ export interface ResideoPlatformConfig extends PlatformConfig {
     refreshRate?: number
     /** Default freeze threshold in Celsius applied to all detectors. */
     freezeThresholdCelsius?: number
+    /**
+     * Health-report cadence in seconds. Emits a periodic diagnostics line to
+     * the log every N seconds; `0` (the default) disables the subsystem.
+     */
+    diagnosticsInterval?: number
+    /** Emit diagnostics as machine-readable JSON in addition to the human line. */
+    structuredLogs?: boolean
     /** Per-device overrides. */
     devices?: LeakDetectorOptions[]
   }
@@ -160,4 +167,64 @@ export interface ResideoLocation {
   locationID: number
   name?: string
   devices?: WaterLeakDetector[]
+}
+
+/**
+ * Absolute device gauges computed by the platform from its current accessories.
+ * Unlike myleviton (controllable lights/fans), Resideo detectors are read-only
+ * sensors, so the meaningful gauges are reachability and active conditions.
+ */
+export interface DeviceGauges {
+  /** Detectors returned by Resideo at last discovery. */
+  cloud: number
+  /** Detectors currently exposed to HomeKit. */
+  total: number
+  /** Detectors reporting as reachable/online. */
+  online: number
+  /** Detectors currently reporting water present. */
+  leak: number
+  /** Detectors currently reporting a low battery. */
+  lowBattery: number
+}
+
+/**
+ * One opt-in diagnostics report. Because the plugin is polling-only and exposes
+ * read-only sensors, this is a reduced version of myleviton's snapshot: there is
+ * no WebSocket, circuit breaker, rate limiter, or cache to report on.
+ */
+export interface DiagnosticsSnapshot {
+  /** Channel identifier, e.g. `health`, `diagnostics.start`, `diagnostics.stop`. */
+  msg: string
+  lifecycle: {
+    health: 'healthy' | 'degraded'
+    reasons: string[]
+    uptimeSec: number
+    pluginVersion: string
+  }
+  devices: DeviceGauges
+  polling: {
+    cadenceSec: number
+    lastDurationMs: number | null
+    ok: number
+    failed: number
+  }
+  token: {
+    expiresInSec: number | null
+    lastRefreshAt: number | null
+    refreshes: number
+  }
+  api: {
+    p50Ms: number
+    p95Ms: number
+    requests: number
+    errors: number
+  }
+  activity: {
+    /** API request retries (transient failures + the 401 refresh-and-retry). */
+    retries: number
+    /** Device state transitions observed across polls (leak/offline/battery/freeze). */
+    stateChanges: number
+  }
+  /** Redacted config echo, present only on boot/shutdown snapshots. */
+  config?: Record<string, unknown>
 }

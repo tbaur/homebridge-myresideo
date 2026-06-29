@@ -196,6 +196,80 @@ describe('TokenManager', () => {
     await expect(manager.getAccessToken()).rejects.toBeInstanceOf(NetworkError)
     expect(requestToken).toHaveBeenCalledTimes(2)
   })
+
+  describe('diagnostics surface', () => {
+    it('reports null token status before any token is obtained', () => {
+      const manager = new TokenManager({
+        consumerKey: 'key',
+        consumerSecret: 'secret',
+        refreshToken: 'refresh-0',
+        requestToken: jest.fn(),
+      })
+      expect(manager.getStatus()).toEqual({ expiresInSec: null, lastRefreshAt: null })
+    })
+
+    it('reports a null expiry while an optimistic config token is in use', async () => {
+      const manager = new TokenManager({
+        consumerKey: 'key',
+        consumerSecret: 'secret',
+        refreshToken: 'refresh-0',
+        accessToken: 'config-access',
+        requestToken: jest.fn().mockResolvedValue(makeTokenResponse()),
+      })
+
+      // The config token is used optimistically; its true expiry is unknown, so
+      // expiresInSec must be null rather than a misleading large-negative value.
+      await manager.getAccessToken()
+      expect(manager.getStatus().expiresInSec).toBeNull()
+    })
+
+    it('reports remaining lifetime and last refresh time after a refresh', async () => {
+      const clock = 1_000_000
+      const requestToken = jest.fn().mockResolvedValue(makeTokenResponse({ expires_in: '1799' }))
+      const manager = new TokenManager({
+        consumerKey: 'key',
+        consumerSecret: 'secret',
+        refreshToken: 'refresh-0',
+        now: () => clock,
+        requestToken,
+      })
+
+      await manager.getAccessToken()
+      const status = manager.getStatus()
+      // 1799s minus the 60s refresh buffer = 1739s of usable lifetime.
+      expect(status.expiresInSec).toBe(1739)
+      expect(status.lastRefreshAt).toBe(1_000_000)
+    })
+
+    it('invokes onRefreshSuccess after a successful refresh', async () => {
+      const onRefreshSuccess = jest.fn()
+      const manager = new TokenManager({
+        consumerKey: 'key',
+        consumerSecret: 'secret',
+        refreshToken: 'refresh-0',
+        onRefreshSuccess,
+        requestToken: jest.fn().mockResolvedValue(makeTokenResponse()),
+      })
+
+      await manager.getAccessToken()
+      expect(onRefreshSuccess).toHaveBeenCalledTimes(1)
+    })
+
+    it('invokes onRefreshFailure when a refresh ultimately fails', async () => {
+      const onRefreshFailure = jest.fn()
+      const manager = new TokenManager({
+        consumerKey: 'key',
+        consumerSecret: 'secret',
+        refreshToken: 'refresh-0',
+        maxRefreshAttempts: 1,
+        onRefreshFailure,
+        requestToken: jest.fn().mockRejectedValue(new RefreshTokenInvalidError()),
+      })
+
+      await expect(manager.getAccessToken()).rejects.toBeInstanceOf(RefreshTokenInvalidError)
+      expect(onRefreshFailure).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 
 describe('buildAuthorizeUrl', () => {

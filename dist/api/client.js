@@ -26,6 +26,8 @@ class ResideoApiClient {
     maxRetryAttempts;
     logger;
     transport;
+    metrics;
+    onRetry;
     constructor(options) {
         this.tokenManager = options.tokenManager;
         this.apikey = options.apikey;
@@ -33,6 +35,8 @@ class ResideoApiClient {
         this.maxRetryAttempts = options.maxRetryAttempts ?? settings_1.MAX_API_RETRY_ATTEMPTS;
         this.logger = options.logger;
         this.transport = options.transport ?? defaultTransport;
+        this.metrics = options.metrics;
+        this.onRetry = options.onRetry;
     }
     /** GET all locations (with their embedded devices) for the authenticated user. */
     async getLocations() {
@@ -56,8 +60,20 @@ class ResideoApiClient {
      */
     async get(baseUrl, params) {
         const url = this.buildUrl(baseUrl, params);
-        const raw = await this.requestWithRetry(url);
-        return this.parseJson(raw, url);
+        const { raw, durationMs } = await this.requestWithRetry(url);
+        // The successful (2xx) attempt's metric is recorded here, after parsing, so
+        // a 200 with an unparseable body is counted as a failure rather than masking
+        // a real error as success. Failed/retried attempts are recorded in
+        // timedTransport, giving exactly one metric per networked attempt.
+        try {
+            const parsed = this.parseJson(raw, url);
+            this.metrics?.({ durationMs, ok: true });
+            return parsed;
+        }
+        catch (err) {
+            this.metrics?.({ durationMs, ok: false });
+            throw err;
+        }
     }
     buildUrl(baseUrl, params) {
         const url = new URL(baseUrl);
@@ -76,9 +92,9 @@ class ResideoApiClient {
             let waitMs;
             try {
                 const accessToken = await this.tokenManager.getAccessToken();
-                const raw = await this.transport(url, accessToken, this.timeoutMs);
+                const { raw, durationMs } = await this.timedTransport(url, accessToken);
                 if (raw.status >= 200 && raw.status < 300) {
-                    return raw;
+                    return { raw, durationMs };
                 }
                 const error = (0, errors_1.createApiError)(raw.status, `Request to ${redact(url)} failed (${raw.status})`);
                 // One token refresh-and-retry on auth failure.
@@ -86,6 +102,7 @@ class ResideoApiClient {
                     refreshedOnAuth = true;
                     this.logger?.debug?.('Received 401; forcing token refresh and retrying');
                     await this.tokenManager.forceRefresh();
+                    this.onRetry?.();
                     continue;
                 }
                 if (!error.isRetryable) {
@@ -107,10 +124,33 @@ class ResideoApiClient {
                 lastError = err;
             }
             if (attempt < this.maxRetryAttempts) {
+                this.onRetry?.();
                 await (0, backoff_1.delay)(waitMs ?? (0, backoff_1.backoffMs)(attempt));
             }
         }
         throw lastError instanceof Error ? lastError : new errors_1.NetworkError('Request failed after retries');
+    }
+    /**
+     * Invoke the transport and time the attempt. A networked failure (a non-2xx
+     * response, or a thrown network/timeout error) records an `ok: false` metric
+     * here and is re-thrown/returned for the retry logic. A 2xx response does NOT
+     * record here: its metric is deferred to {@link get} so the JSON parse outcome
+     * is included, and the measured duration is returned to the caller.
+     */
+    async timedTransport(url, accessToken) {
+        const startedAt = Date.now();
+        try {
+            const raw = await this.transport(url, accessToken, this.timeoutMs);
+            const durationMs = Date.now() - startedAt;
+            if (raw.status < 200 || raw.status >= 300) {
+                this.metrics?.({ durationMs, ok: false });
+            }
+            return { raw, durationMs };
+        }
+        catch (err) {
+            this.metrics?.({ durationMs: Date.now() - startedAt, ok: false });
+            throw err;
+        }
     }
     parseJson(raw, url) {
         try {

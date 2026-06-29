@@ -26,6 +26,10 @@ export interface TokenManagerOptions {
     accessToken?: string;
     /** Invoked whenever the API rotates the refresh token, so it can be persisted. */
     onRefreshToken?: (newRefreshToken: string) => Promise<void> | void;
+    /** Optional diagnostics hook invoked after every successful token refresh. */
+    onRefreshSuccess?: () => void;
+    /** Optional diagnostics hook invoked when a refresh ultimately fails. */
+    onRefreshFailure?: () => void;
     logger?: AuthLogger;
     /** Injectable clock (ms epoch). Defaults to {@link Date.now}. */
     now?: () => number;
@@ -48,9 +52,12 @@ export declare class TokenManager {
      * normal proactive-expiry lifecycle takes over.
      */
     private accessTokenIsOptimistic;
+    private lastRefreshAt;
     private readonly consumerKey;
     private readonly consumerSecret;
     private readonly onRefreshToken?;
+    private readonly onRefreshSuccess?;
+    private readonly onRefreshFailure?;
     private readonly logger?;
     private readonly now;
     private readonly maxRefreshAttempts;
@@ -66,6 +73,18 @@ export declare class TokenManager {
     forceRefresh(): Promise<string>;
     /** The current (possibly rotated) refresh token. */
     getRefreshToken(): string;
+    /**
+     * Synchronous, in-memory token health for diagnostics. `expiresInSec` is the
+     * remaining lifetime of the current access token (negative once past expiry),
+     * or `null` when the expiry is unknown — either no token has been obtained yet
+     * or an optimistic config-supplied token (whose true expiry the plugin cannot
+     * know) is still in use. `lastRefreshAt` is the epoch ms of the last successful
+     * refresh (`null` until the first refresh).
+     */
+    getStatus(): {
+        expiresInSec: number | null;
+        lastRefreshAt: number | null;
+    };
     private refresh;
     /**
      * Execute the refresh, retrying transient (network/timeout) failures with

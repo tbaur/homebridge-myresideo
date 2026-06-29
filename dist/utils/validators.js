@@ -94,13 +94,25 @@ function validateConfig(config) {
     }
     const options = config?.options;
     if (options) {
-        const { refreshRate, freezeThresholdCelsius, devices } = options;
+        const { refreshRate, freezeThresholdCelsius, diagnosticsInterval, devices } = options;
         if (refreshRate !== undefined) {
             if (typeof refreshRate !== 'number' || Number.isNaN(refreshRate)) {
                 warnings.push('options.refreshRate must be a number; using the default instead.');
             }
             else if (refreshRate < settings_1.MIN_REFRESH_RATE_SEC) {
                 warnings.push(`options.refreshRate ${refreshRate}s is below the ${settings_1.MIN_REFRESH_RATE_SEC}s minimum; it will be clamped.`);
+            }
+        }
+        if (diagnosticsInterval !== undefined) {
+            if (typeof diagnosticsInterval !== 'number' || Number.isNaN(diagnosticsInterval)) {
+                warnings.push('options.diagnosticsInterval must be a number; diagnostics will be disabled.');
+            }
+            else if (diagnosticsInterval < 0) {
+                warnings.push('options.diagnosticsInterval cannot be negative; diagnostics will be disabled.');
+            }
+            else if (diagnosticsInterval > 0 && diagnosticsInterval < settings_1.MIN_DIAGNOSTICS_INTERVAL_SEC) {
+                warnings.push(`options.diagnosticsInterval ${diagnosticsInterval}s is below the `
+                    + `${settings_1.MIN_DIAGNOSTICS_INTERVAL_SEC}s minimum; it will be clamped.`);
             }
         }
         if (freezeThresholdCelsius !== undefined) {

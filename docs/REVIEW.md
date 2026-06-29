@@ -54,14 +54,14 @@ This document summarizes the plugin's security, reliability, maintainability, an
 | **Logging** | ✅ | Uses the Homebridge logger; all error logging routed through `sanitizeError` |
 | **Config Schema ↔ Validators** | ✅ | `validateConfig` enforces every field (including credentials) at startup; `config.schema.json` declares both the user-editable options and the `credentials` object (so config-ui-x preserves the saved tokens), but keeps `credentials` out of the rendered `layout` so they are managed by the account-linking UI rather than shown in the form. A schema regression test (`tests/unit/config-schema.test.ts`) locks in this contract, and additionally asserts the schema stays valid draft-07 JSON Schema (`required` declared only as arrays, never a boolean on a field), requires the platform `name`, and keeps the per-device `items` free of `default`s and a `deviceID` `required` constraint — so config-ui-x cannot fabricate a phantom override that then fails validation on a fresh install. The plugin instead validates/ignores incomplete overrides at startup (`validateConfig`) |
 | **Differentiated Errors** | ✅ | Invalid refresh token vs. rejected API credentials are logged distinctly so users know whether to re-link or fix credentials |
-| **Structured Diagnostics** | ⚠️ | No dedicated diagnostics/health-heartbeat subsystem; standard logging covers current needs |
+| **Structured Diagnostics** | ✅ | Opt-in diagnostics subsystem (`diagnosticsInterval`): a periodic heartbeat with API latency (p50/p95), poll success/failure, token expiry, device gauges, and a `healthy`/`degraded` rollup; boot/shutdown snapshots carry a redacted config echo; `structuredLogs` adds machine-readable JSON. Disabled by default; all emission is failure-isolated so it can never crash the host |
 | **Integration Smoke Tests** | ✅ | `tests/integration/network.test.ts` exercises the native transport with `nock` (no live API) |
 
 ---
 
 ## Scope
 
-The plugin targets a single device type (the WiFi Water Leak & Freeze Detector) over a poll-only REST API, and is intentionally kept small, with a dependency-free runtime core (the optional account-linking UI adds a single, dependency-free package). Heavier infrastructure — a dedicated diagnostics subsystem and structured JSON logging — is not part of the current design; it can be added if field needs justify it. Adding support for other Honeywell Home device types is outlined in [`DEVELOPMENT.md`](../DEVELOPMENT.md).
+The plugin targets a single device type (the WiFi Water Leak & Freeze Detector) over a poll-only REST API, and is intentionally kept small, with a dependency-free runtime core (the optional account-linking UI adds a single, dependency-free package). An opt-in diagnostics subsystem (periodic health heartbeat with optional structured JSON logging) is available but off by default, so the steady-state footprint stays minimal. Adding support for other Honeywell Home device types is outlined in [`DEVELOPMENT.md`](../DEVELOPMENT.md).
 
 ---
 
@@ -72,7 +72,7 @@ The plugin targets a single device type (the WiFi Water Leak & Freeze Detector) 
 | **Security** | Strong; documented config-secret residual risk |
 | **Reliability** | Strong; token-refresh, discovery, polling, and persistence all hardened |
 | **Maintainability** | Strong; small, well-tested (incl. platform/accessory), dependency-free core |
-| **Serviceability** | Good; standard logging, no dedicated diagnostics subsystem |
+| **Serviceability** | Good; standard logging plus an opt-in diagnostics/health-heartbeat subsystem |
 
 A built-in account-linking UI — completing the OAuth2 flow from the plugin settings, with the `get-tokens` script as a command-line fallback — ships in this version. The main remaining item, validation against real hardware, is tracked in the [issue tracker](https://github.com/tbaur/homebridge-myresideo/issues).
 

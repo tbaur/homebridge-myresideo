@@ -113,14 +113,15 @@ function makeLog() {
 function build(device: WaterLeakDetector, options: LeakDetectorOptions = { deviceID: 'dev-1' }, threshold?: number) {
   const accessory = makeAccessory(device)
   const log = makeLog()
-  const platform = { Service, Characteristic, log } as unknown as ResideoPlatform
+  const recordStateChange = jest.fn()
+  const platform = { Service, Characteristic, log, recordStateChange } as unknown as ResideoPlatform
   const handler = new LeakSensorAccessory(
     platform,
     accessory as unknown as PlatformAccessory,
     options,
     threshold,
   )
-  return { handler, accessory, log }
+  return { handler, accessory, log, recordStateChange }
 }
 
 describe('LeakSensorAccessory', () => {
@@ -217,7 +218,7 @@ describe('LeakSensorAccessory', () => {
     accessory.addService(Service.TemperatureSensor)
     accessory.addService(Service.HumiditySensor)
     accessory.addService(Service.ContactSensor)
-    const platform = { Service, Characteristic, log: makeLog() } as unknown as ResideoPlatform
+    const platform = { Service, Characteristic, log: makeLog(), recordStateChange: jest.fn() } as unknown as ResideoPlatform
 
     // Re-create the handler with all three optional services turned off.
     new LeakSensorAccessory(
@@ -308,5 +309,15 @@ describe('LeakSensorAccessory state-transition logging', () => {
     handler.updateStatus(baseDevice({ currentAlarms: [{ type: 'HighHumidity' }], batteryRemaining: 90 }))
     handler.updateStatus(healthy())
     expect(log.info).toHaveBeenCalledWith('Test Detector: alarms cleared')
+  })
+
+  it('records a diagnostics state change only on a real transition, not the baseline', () => {
+    const { handler, recordStateChange } = build(healthy())
+    // First poll established the baseline; an unchanged poll is not a change.
+    handler.updateStatus(healthy())
+    expect(recordStateChange).not.toHaveBeenCalled()
+
+    handler.updateStatus(baseDevice({ waterPresent: true, batteryRemaining: 90 }))
+    expect(recordStateChange).toHaveBeenCalledTimes(1)
   })
 })

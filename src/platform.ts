@@ -21,6 +21,8 @@ import type {
 
 import { ResideoApiClient, TokenManager } from './api'
 import { LeakSensorAccessory } from './devices/leak-sensor'
+import { DiagnosticsCollector } from './diagnostics/collector'
+import type { DiagnosticsReaders } from './diagnostics/collector'
 import {
   ApiParseError,
   ApiResponseError,
@@ -33,14 +35,49 @@ import {
   DEFAULT_REFRESH_RATE_SEC,
   INITIAL_DISCOVERY_RETRY_MS,
   MAX_DISCOVERY_RETRY_MS,
+  MIN_DIAGNOSTICS_INTERVAL_SEC,
   MIN_REFRESH_RATE_SEC,
   PLATFORM_NAME,
   PLUGIN_NAME,
   POLL_DEVICE_CONCURRENCY,
+  TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
   UUID_PREFIX,
 } from './settings'
-import type { LeakDetectorOptions, ResideoPlatformConfig, WaterLeakDetector } from './types'
-import { isWaterLeakDetector, maskToken, sanitizeError, sanitizeFreezeThreshold, validateConfig } from './utils'
+import type {
+  DeviceGauges,
+  DiagnosticsSnapshot,
+  LeakDetectorOptions,
+  ResideoPlatformConfig,
+  WaterLeakDetector,
+} from './types'
+import {
+  isDeviceActive,
+  isLeakDetected,
+  isLowBattery,
+  isWaterLeakDetector,
+  maskToken,
+  sanitizeError,
+  sanitizeFreezeThreshold,
+  validateConfig,
+} from './utils'
+
+/**
+ * Installed plugin version, used for diagnostics lifecycle reporting.
+ *
+ * Resolved via `require` rather than a static `import`: `package.json` lives
+ * outside the TypeScript `rootDir` (`src/`), so importing it would alter the
+ * emitted `dist/` layout. The require resolves correctly from both the compiled
+ * `dist/` output and ts-jest.
+ */
+function readPluginVersion(): string {
+  try {
+    return (require('../package.json').version as string) || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+const PLUGIN_VERSION = readPluginVersion()
 
 export default class ResideoPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof ServiceClass
@@ -60,6 +97,15 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   private stopped = false
   /** True when startup validation failed; the platform stays inert. */
   private disabled = false
+
+  // Opt-in diagnostics subsystem (off unless options.diagnosticsInterval > 0).
+  private diagnostics?: DiagnosticsCollector
+  private diagnosticsTimer?: ReturnType<typeof setInterval>
+  private lastDiagnosticsHealth: 'healthy' | 'degraded' | null = null
+  /** Detectors returned by Resideo at the last successful discovery. */
+  private lastCloudDetectorCount = 0
+  /** Epoch ms of the last failed token refresh, for the degraded-health window. */
+  private lastRefreshFailureAt: number | null = null
 
   constructor(
     public readonly log: Logging,
@@ -85,6 +131,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
 
     this.log.info(`Initializing ${this.config.name ?? PLATFORM_NAME} platform`)
 
+    // The collector is created before the client/token manager so their metric
+    // hooks can feed it. It is cheap and purely in-memory; nothing is emitted
+    // to the log unless options.diagnosticsInterval > 0.
+    this.diagnostics = new DiagnosticsCollector({ pluginVersion: PLUGIN_VERSION, config })
+
     this.tokenManager = new TokenManager({
       consumerKey: config.credentials.consumerKey,
       consumerSecret: config.credentials.consumerSecret,
@@ -92,12 +143,21 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       accessToken: config.credentials.accessToken,
       logger: this.log,
       onRefreshToken: token => this.persistRefreshToken(token),
+      onRefreshSuccess: () => {
+        this.lastRefreshFailureAt = null
+        this.diagnostics?.tokenRefresh()
+      },
+      onRefreshFailure: () => {
+        this.lastRefreshFailureAt = Date.now()
+      },
     })
 
     this.client = new ResideoApiClient({
       tokenManager: this.tokenManager,
       apikey: config.credentials.consumerKey,
       logger: this.log,
+      metrics: sample => this.diagnostics?.apiRequest(sample.durationMs, sample.ok),
+      onRetry: () => this.diagnostics?.retry(),
     })
 
     this.api.on('didFinishLaunching', () => {
@@ -105,6 +165,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     })
     this.api.on('shutdown', () => {
       this.stopped = true
+      this.stopDiagnostics()
       if (this.pollTimer) {
         clearInterval(this.pollTimer)
       }
@@ -112,6 +173,17 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         clearTimeout(this.discoveryTimer)
       }
     })
+  }
+
+  /**
+   * Record a device state transition (leak/offline/battery/freeze) for the
+   * diagnostics activity counter. Called by the accessory handlers. The collector
+   * accumulates counters whenever the platform is active (regardless of
+   * `diagnosticsInterval`); only emission to the log is gated on the interval, so
+   * this is a no-op only when the platform was disabled by invalid config.
+   */
+  recordStateChange(): void {
+    this.diagnostics?.stateChange()
   }
 
   /** Restore an accessory from the Homebridge cache. */
@@ -156,6 +228,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       }
 
       this.log.info(`Discovered ${detectors.length} water leak detector(s)`)
+      this.lastCloudDetectorCount = detectors.length
       for (const { device, locationId } of detectors) {
         this.registerDevice(device, locationId)
       }
@@ -165,6 +238,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       this.discoveryAttempt = 0
       await this.runPollCycle()
       this.startPolling()
+      this.startDiagnostics()
     } catch (err) {
       this.handleError('discoverDevices', err)
       if (this.isFatal(err)) {
@@ -300,17 +374,22 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       return
     }
     this.isPolling = true
+    const cycleStart = Date.now()
     try {
-      await this.pollAll()
+      const { ok, failed } = await this.pollAll()
+      this.diagnostics?.pollCycle(ok, failed, Date.now() - cycleStart)
     } finally {
       this.isPolling = false
     }
   }
 
-  /** Poll every device with bounded concurrency so cycle time stays bounded. */
-  private async pollAll(): Promise<void> {
+  /**
+   * Poll every device with bounded concurrency so cycle time stays bounded.
+   * Returns per-cycle success/failure counts for diagnostics.
+   */
+  private async pollAll(): Promise<{ ok: number, failed: number }> {
     if (!this.client) {
-      return
+      return { ok: 0, failed: 0 }
     }
     // Snapshot the device IDs that currently have a known location. Each worker
     // re-checks per device below, since pruning/discovery can mutate the maps
@@ -318,10 +397,12 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     const deviceIds = [...this.handlers.keys()].filter(id => this.locationByDevice.has(id))
     const workerCount = Math.min(POLL_DEVICE_CONCURRENCY, deviceIds.length)
     if (workerCount === 0) {
-      return
+      return { ok: 0, failed: 0 }
     }
 
     let nextIndex = 0
+    let ok = 0
+    let failed = 0
     const worker = async (): Promise<void> => {
       while (nextIndex < deviceIds.length) {
         const deviceID = deviceIds[nextIndex++]
@@ -333,13 +414,16 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         try {
           const device = await this.client.getWaterLeakDetector(deviceID, locationId)
           handler.updateStatus(device)
+          ok++
         } catch (err) {
+          failed++
           this.handleError(`poll ${deviceID}`, err)
         }
       }
     }
 
     await Promise.all(Array.from({ length: workerCount }, () => worker()))
+    return { ok, failed }
   }
 
   private handleError(context: string, err: unknown): void {
@@ -352,6 +436,137 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       return
     }
     this.log.error(`[${context}] ${sanitizeError(err)}`)
+  }
+
+  /** Diagnostics heartbeat interval in milliseconds (0 when disabled). */
+  private diagnosticsIntervalMs(): number {
+    const seconds = this.config.options?.diagnosticsInterval
+    if (typeof seconds !== 'number' || Number.isNaN(seconds) || seconds <= 0) {
+      return 0
+    }
+    return Math.max(seconds, MIN_DIAGNOSTICS_INTERVAL_SEC) * 1000
+  }
+
+  /** Effective polling cadence in seconds (mirrors refreshRateMs clamping). */
+  private pollingCadenceSeconds(): number {
+    return Math.round(this.refreshRateMs / 1000)
+  }
+
+  /**
+   * Start the diagnostics subsystem: emit the boot snapshot and schedule the
+   * heartbeat. No-op unless options.diagnosticsInterval > 0. Diagnostics must
+   * never be able to crash the host, so emission is wrapped defensively.
+   */
+  private startDiagnostics(): void {
+    const interval = this.diagnosticsIntervalMs()
+    if (interval <= 0 || this.stopped || this.diagnosticsTimer || !this.diagnostics) {
+      return
+    }
+    try {
+      const startReport = this.diagnostics.snapshot('diagnostics.start', this.buildDiagnosticsReaders())
+      this.lastDiagnosticsHealth = startReport.lifecycle.health
+      this.emitDiagnostic('info', startReport)
+    } catch (err) {
+      this.log.debug(`Failed to emit diagnostics start snapshot: ${sanitizeError(err)}`)
+    }
+    this.diagnosticsTimer = setInterval(() => this.diagnosticsHeartbeat(), interval)
+  }
+
+  /** Emit the cumulative stop snapshot and tear down the heartbeat timer. */
+  private stopDiagnostics(): void {
+    if (!this.diagnosticsTimer) {
+      return
+    }
+    try {
+      this.emitDiagnostic('info', this.diagnostics!.snapshot('diagnostics.stop', this.buildDiagnosticsReaders()))
+    } catch (err) {
+      this.log.debug(`Failed to emit diagnostics stop snapshot: ${sanitizeError(err)}`)
+    }
+    clearInterval(this.diagnosticsTimer)
+    this.diagnosticsTimer = undefined
+  }
+
+  /**
+   * Emit a single heartbeat (per-interval deltas) and log health transitions.
+   * Wrapped so a reader failure can never escape the timer and crash Homebridge.
+   */
+  private diagnosticsHeartbeat(): void {
+    if (!this.diagnostics) {
+      return
+    }
+    try {
+      const report = this.diagnostics.buildHeartbeat(this.buildDiagnosticsReaders())
+      this.emitDiagnostic('info', report)
+
+      const health = report.lifecycle.health
+      if (this.lastDiagnosticsHealth !== null && health !== this.lastDiagnosticsHealth) {
+        const isDegraded = health === 'degraded'
+        this.emitDiagnostic(isDegraded ? 'warn' : 'info', {
+          ...report,
+          msg: isDegraded ? 'health.degraded' : 'health.recovered',
+        })
+      }
+      this.lastDiagnosticsHealth = health
+    } catch (err) {
+      this.log.debug(`Diagnostics heartbeat failed: ${sanitizeError(err)}`)
+    }
+  }
+
+  /**
+   * Build the synchronous, in-memory readers the collector uses. Never performs
+   * network I/O.
+   */
+  private buildDiagnosticsReaders(): DiagnosticsReaders {
+    return {
+      devices: () => this.collectDeviceGauges(),
+      tokenExpiresInSec: () => this.tokenManager?.getStatus().expiresInSec ?? null,
+      tokenLastRefreshAt: () => this.tokenManager?.getStatus().lastRefreshAt ?? null,
+      tokenRefreshFailureActive: () =>
+        this.lastRefreshFailureAt !== null
+        && Date.now() - this.lastRefreshFailureAt < TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
+      pollingCadenceSec: () => this.pollingCadenceSeconds(),
+    }
+  }
+
+  /**
+   * Compute absolute device gauges from the latest polled state stored on each
+   * accessory's context. Reachability and active conditions are the meaningful
+   * signals for these read-only sensors.
+   */
+  private collectDeviceGauges(): DeviceGauges {
+    let online = 0
+    let leak = 0
+    let lowBattery = 0
+    for (const accessory of this.accessories) {
+      const device = accessory.context.device as WaterLeakDetector | undefined
+      if (!device) {
+        continue
+      }
+      if (isDeviceActive(device)) {
+        online++
+      }
+      if (isLeakDetected(device)) {
+        leak++
+      }
+      if (device.batteryRemaining !== undefined && isLowBattery(device.batteryRemaining)) {
+        lowBattery++
+      }
+    }
+    return { cloud: this.lastCloudDetectorCount, total: this.handlers.size, online, leak, lowBattery }
+  }
+
+  /**
+   * Emit a diagnostics report as a human-readable line, plus a structured JSON
+   * line when options.structuredLogs is enabled. The report is already redacted.
+   */
+  private emitDiagnostic(level: 'info' | 'warn', report: DiagnosticsSnapshot): void {
+    this.log[level](formatDiagnosticLine(report))
+    if (this.config.options?.structuredLogs) {
+      // Emit the report as-is: `msg` plus the nested groups (lifecycle, devices,
+      // polling, token, api, activity, and the config echo on snapshots). The
+      // report is already redacted, so this never carries credentials.
+      this.log[level](JSON.stringify(report))
+    }
   }
 
   /**
@@ -410,4 +625,37 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     )
     return undefined
   }
+}
+
+/** Human-readable label for a diagnostics channel (structured JSON keeps `msg`). */
+function diagnosticLabel(msg: string): string {
+  switch (msg) {
+    case 'health':
+      return 'Health'
+    case 'diagnostics.start':
+      return 'Diagnostics start'
+    case 'diagnostics.stop':
+      return 'Diagnostics stop'
+    case 'health.degraded':
+      return 'Health degraded'
+    case 'health.recovered':
+      return 'Health recovered'
+    default:
+      return msg
+  }
+}
+
+/** Build the concise human-readable summary line for a diagnostics report. */
+function formatDiagnosticLine(report: DiagnosticsSnapshot): string {
+  const { lifecycle, devices, polling, token, api } = report
+  const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : ''
+  const pollDuration = polling.lastDurationMs === null ? 'n/a' : `${polling.lastDurationMs}ms`
+  const tokenExp = token.expiresInSec === null ? 'n/a' : `${token.expiresInSec}s`
+  return (
+    `${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText} | `
+    + `detectors ${devices.online}/${devices.total} online (${devices.leak} leak) | `
+    + `poll ${pollDuration} ok ${polling.ok} failed ${polling.failed} | `
+    + `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms (req ${api.requests}, err ${api.errors}) | `
+    + `token exp ${tokenExp}`
+  )
 }
