@@ -101,14 +101,14 @@ Your detectors are discovered at startup and appear in the Home app automaticall
 
 Per-device overrides (`options.devices[]`), keyed by `deviceID`:
 
-| Option | Description |
-|--------|-------------|
-| `deviceID` | Honeywell device ID the override applies to |
-| `name` | Display-name override for the accessory |
-| `hideTemperatureSensor` | Hide the temperature sensor service |
-| `hideHumiditySensor` | Hide the humidity sensor service |
-| `enableFreezeSensor` | Expose a freeze contact sensor for this device |
-| `freezeThresholdCelsius` | Freeze threshold override in °C for this device |
+| Option | Required | Description |
+|--------|:--------:|-------------|
+| `deviceID` | ✓ | Honeywell device ID the override applies to |
+| `name` | | Display-name override for the accessory |
+| `hideTemperatureSensor` | | Hide the temperature sensor service |
+| `hideHumiditySensor` | | Hide the humidity sensor service |
+| `enableFreezeSensor` | | Expose a freeze contact sensor for this device |
+| `freezeThresholdCelsius` | | Freeze threshold override in °C for this device |
 
 ## Not Working?
 

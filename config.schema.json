@@ -8,6 +8,7 @@
   "footerDisplay": "For help, see the [README](https://github.com/tbaur/homebridge-myresideo#readme).",
   "schema": {
     "type": "object",
+    "required": ["name"],
     "properties": {
       "name": {
         "title": "Name",
@@ -58,11 +59,11 @@
             "title": "Per-Device Options",
             "items": {
               "type": "object",
+              "required": ["deviceID"],
               "properties": {
                 "deviceID": {
                   "title": "Device ID",
-                  "type": "string",
-                  "required": true
+                  "type": "string"
                 },
                 "name": {
                   "title": "Display Name Override",
