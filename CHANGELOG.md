@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.10](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.9...v0.1.10) (2026-06-29)
+
+
+### Bug Fixes
+
+* make config schema valid so config-ui-x validation passes ([#27](https://github.com/tbaur/homebridge-myresideo/issues/27)) ([29d731a](https://github.com/tbaur/homebridge-myresideo/commit/29d731a2846a8646bd4f2fb14672635378259b59))
+
 ## [0.1.9](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.8...v0.1.9) (2026-06-29)
 
 
