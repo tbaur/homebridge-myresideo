@@ -104,6 +104,12 @@
   <script>
     (async () => {
       const DEFAULT_REDIRECT_URI = 'http://localhost:8581/oauth/callback'
+      // Resideo / Honeywell Home OAuth2 authorize endpoint (see docs/API.md).
+      // Mirrors buildAuthorizeUrl() in src/api/auth.ts; built here in the
+      // browser so opening sign-in needs no round-trip to the UI server (which
+      // may not be ready on a fresh install) and so window.open() stays inside
+      // the click gesture and is not popup-blocked.
+      const AUTHORIZE_URL = 'https://api.honeywellhome.com/oauth2/authorize'
       const byId = id => document.getElementById(id)
 
       const keyEl = byId('resideoKey')
@@ -217,26 +223,30 @@
         showLinkForm()
       })
 
-      openAuthBtn.addEventListener('click', async () => {
+      openAuthBtn.addEventListener('click', () => {
         const consumerKey = trimmed(keyEl)
         const redirectUri = trimmed(redirectEl)
         if (!consumerKey || !redirectUri) {
           homebridge.toast.error('Enter your Consumer Key and a Redirect URL first.', 'Missing details')
           return
         }
-        homebridge.showSpinner()
+        let authorizeUrl
         try {
-          const res = await homebridge.request('/authorize-url', { consumerKey, redirectUri })
-          authUrlLink.href = res.authorizeUrl
-          authUrlLink.textContent = res.authorizeUrl
-          authFallback.style.display = 'block'
-          step2.style.display = 'block'
-          window.open(res.authorizeUrl, '_blank', 'noopener')
-        } catch (err) {
-          homebridge.toast.error(err.message, 'Could not start sign-in')
-        } finally {
-          homebridge.hideSpinner()
+          const url = new URL(AUTHORIZE_URL)
+          url.searchParams.set('response_type', 'code')
+          url.searchParams.set('client_id', consumerKey)
+          url.searchParams.set('redirect_uri', redirectUri)
+          authorizeUrl = url.toString()
+        } catch {
+          homebridge.toast.error('Could not build the sign-in URL — check your Redirect URL.', 'Could not start sign-in')
+          return
         }
+        authUrlLink.href = authorizeUrl
+        authUrlLink.textContent = authorizeUrl
+        authFallback.style.display = 'block'
+        step2.style.display = 'block'
+        // Synchronous (within the click) so the browser does not block the popup.
+        window.open(authorizeUrl, '_blank', 'noopener')
       })
 
       linkBtn.addEventListener('click', async () => {
