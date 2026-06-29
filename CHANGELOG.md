@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.2.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.1.0...v1.2.0) (2026-06-29)
+
+
+### Features
+
+* log per-detector state summary at startup ([#42](https://github.com/tbaur/homebridge-myresideo/issues/42)) ([86a2559](https://github.com/tbaur/homebridge-myresideo/commit/86a255915da85bcb094617bc92523668064d373d))
+
 ## [1.1.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.0.1...v1.1.0) (2026-06-29)
 
 
