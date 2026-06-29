@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.9](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.8...v0.1.9) (2026-06-29)
+
+
+### Bug Fixes
+
+* persist account credentials by declaring them in config schema ([d03e5b9](https://github.com/tbaur/homebridge-myresideo/commit/d03e5b9a661e29c2ccf7814bd6e75c6402ee07e6))
+
 ## [0.1.8](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.7...v0.1.8) (2026-06-29)
 
 
