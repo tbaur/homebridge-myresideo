@@ -8,7 +8,7 @@
  * HomeKit-friendly values. Kept side-effect free so they are trivially testable.
  */
 
-import { DEFAULT_FREEZE_THRESHOLD_C, LOW_BATTERY_THRESHOLD } from '../settings'
+import { DEFAULT_FREEZE_THRESHOLD_C, LEAK_DETECTOR_DEVICE_CLASS, LOW_BATTERY_THRESHOLD } from '../settings'
 import type { WaterLeakDetector } from '../types'
 
 /** True when liquid water is currently detected. */
@@ -69,7 +69,7 @@ export function clampBatteryLevel(batteryRemaining: number | undefined): number 
 
 /** Identify whether an API device record is a water leak detector. */
 export function isWaterLeakDetector(device: Pick<WaterLeakDetector, 'deviceClass'>): boolean {
-  return device.deviceClass === 'LeakDetector'
+  return device.deviceClass === LEAK_DETECTOR_DEVICE_CLASS
 }
 
 /**

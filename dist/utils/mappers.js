@@ -69,7 +69,7 @@ function clampBatteryLevel(batteryRemaining) {
 }
 /** Identify whether an API device record is a water leak detector. */
 function isWaterLeakDetector(device) {
-    return device.deviceClass === 'LeakDetector';
+    return device.deviceClass === settings_1.LEAK_DETECTOR_DEVICE_CLASS;
 }
 /**
  * True when the device reports at least one active alarm (e.g. HighTemperature,

@@ -34,6 +34,12 @@ export declare class LeakSensorAccessory {
     private prev?;
     constructor(platform: ResideoPlatform, accessory: PlatformAccessory, options: LeakDetectorOptions, defaultFreezeThreshold?: number);
     private get displayName();
+    /**
+     * Remove an optional service that a cached accessory still carries after the
+     * user disabled it (e.g. set `hideTemperatureSensor`/`hideHumiditySensor` or
+     * cleared `enableFreezeSensor`). A no-op when the service was never present.
+     */
+    private removeService;
     /** Push the latest device state into all HomeKit characteristics. */
     updateStatus(device: WaterLeakDetector): void;
     /**
