@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.6](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.5...v0.1.6) (2026-06-29)
+
+
+### Bug Fixes
+
+* warm up UI server child so token-exchange spinner never hangs ([7dd0f43](https://github.com/tbaur/homebridge-myresideo/commit/7dd0f43bc67f7713213ce974565f142c3801deb0))
+
 ## [0.1.5](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.4...v0.1.5) (2026-06-29)
 
 
