@@ -222,3 +222,67 @@ describe('LeakSensorAccessory', () => {
     expect(latestValue(contact, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
   })
 })
+
+describe('LeakSensorAccessory state-transition logging', () => {
+  const healthy = () => baseDevice({
+    batteryRemaining: 90,
+    currentSensorReadings: { time: 't', temperature: 20, humidity: 50 },
+  })
+
+  it('stays silent on a healthy initial poll but emits a debug snapshot', () => {
+    const { log } = build(healthy())
+    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.info).not.toHaveBeenCalled()
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('poll ok'))
+  })
+
+  it('surfaces an already-abnormal state on the first poll', () => {
+    const { log } = build(baseDevice({ waterPresent: true }))
+    expect(log.warn).toHaveBeenCalledWith('Test Detector: LEAK DETECTED')
+  })
+
+  it('logs leak detected (warn) and cleared (info) on transitions only', () => {
+    const { handler, log } = build(healthy())
+    handler.updateStatus(healthy()) // unchanged → no transition log
+    expect(log.warn).not.toHaveBeenCalled()
+
+    handler.updateStatus(baseDevice({ waterPresent: true, batteryRemaining: 90 }))
+    expect(log.warn).toHaveBeenCalledWith('Test Detector: LEAK DETECTED')
+    expect(log.warn).toHaveBeenCalledTimes(1)
+
+    handler.updateStatus(healthy())
+    expect(log.info).toHaveBeenCalledWith('Test Detector: leak cleared')
+  })
+
+  it('logs connectivity transitions', () => {
+    const { handler, log } = build(healthy())
+    handler.updateStatus(baseDevice({ isDeviceOffline: true, batteryRemaining: 90 }))
+    expect(log.info).toHaveBeenCalledWith('Test Detector: went offline')
+    handler.updateStatus(healthy())
+    expect(log.info).toHaveBeenCalledWith('Test Detector: back online')
+  })
+
+  it('logs low-battery and recovery transitions with the level', () => {
+    const { handler, log } = build(healthy())
+    handler.updateStatus(baseDevice({ batteryRemaining: 10 }))
+    expect(log.info).toHaveBeenCalledWith('Test Detector: low battery (10%)')
+    handler.updateStatus(baseDevice({ batteryRemaining: 80 }))
+    expect(log.info).toHaveBeenCalledWith('Test Detector: battery recovered (80%)')
+  })
+
+  it('logs freeze transitions when the freeze sensor is enabled', () => {
+    const warm = baseDevice({ currentSensorReadings: { time: 't', temperature: 20, humidity: 40 } })
+    const { handler, log } = build(warm, { deviceID: 'dev-1', enableFreezeSensor: true }, 4)
+    handler.updateStatus(baseDevice({ currentSensorReadings: { time: 't', temperature: 1, humidity: 40 } }))
+    expect(log.info).toHaveBeenCalledWith('Test Detector: freezing (1°C ≤ 4°C)')
+    handler.updateStatus(baseDevice({ currentSensorReadings: { time: 't', temperature: 10, humidity: 40 } }))
+    expect(log.info).toHaveBeenCalledWith('Test Detector: above freeze threshold (10°C)')
+  })
+
+  it('logs when alarms clear', () => {
+    const { handler, log } = build(healthy())
+    handler.updateStatus(baseDevice({ currentAlarms: [{ type: 'HighHumidity' }], batteryRemaining: 90 }))
+    handler.updateStatus(healthy())
+    expect(log.info).toHaveBeenCalledWith('Test Detector: alarms cleared')
+  })
+})

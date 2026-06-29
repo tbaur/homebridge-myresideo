@@ -26,6 +26,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Automatic Retry** — Transient network, timeout, and 5xx errors are retried with exponential backoff (for both API calls and token refresh)
 - **Self-Healing Discovery** — A transient outage at startup is retried with capped backoff instead of leaving the plugin inert until a restart
 - **Clear Re-Link Signaling** — An expired/invalid refresh token, or rejected API credentials, produce a clear, actionable log message instead of a silent failure loop
+- **Readable Logs** — Each poll logs only what changed (leak, online/offline, low battery, freeze, alarms) once per transition, so the log reflects events without per-cycle noise; a full snapshot is available at debug level
 - **Secret Hygiene** — Credentials are never logged; the `apikey` is redacted from any logged URLs
 
 ### Quality

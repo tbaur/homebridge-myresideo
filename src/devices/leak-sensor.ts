@@ -31,6 +31,20 @@ import {
 } from '../utils'
 import type ResideoPlatform from '../platform'
 
+/** Snapshot of the human-meaningful state derived from a single poll. */
+interface ObservedState {
+  leak: boolean
+  online: boolean
+  /** `undefined` when no battery reading is available (state unknown). */
+  lowBattery?: boolean
+  batteryLevel?: number
+  /** `undefined` when the freeze sensor is disabled or no temperature is known. */
+  freezing?: boolean
+  temperature?: number
+  freezeThreshold?: number
+  humidity?: number
+}
+
 export class LeakSensorAccessory {
   private readonly leakService: Service
   private readonly batteryService: Service
@@ -42,6 +56,8 @@ export class LeakSensorAccessory {
   private readonly defaultFreezeThreshold?: number
   /** Last-logged alarm summary, so an unchanged alarm set isn't re-logged each poll. */
   private lastAlarmSignature?: string
+  /** Last observed state, so transitions are logged once instead of every poll. */
+  private prev?: Pick<ObservedState, 'leak' | 'online' | 'lowBattery' | 'freezing'>
 
   constructor(
     private readonly platform: ResideoPlatform,
@@ -106,12 +122,12 @@ export class LeakSensorAccessory {
     // An unreachable device's readings are stale, and an active alarm is a
     // condition the user should see; both are surfaced as a HomeKit fault.
     const offline = !isDeviceActive(device)
+    const leak = isLeakDetected(device)
     const alarmActive = hasActiveAlarms(device)
-    this.logActiveAlarms(device, alarmActive)
 
     this.leakService.updateCharacteristic(
       Characteristic.LeakDetected,
-      isLeakDetected(device)
+      leak
         ? Characteristic.LeakDetected.LEAK_DETECTED
         : Characteristic.LeakDetected.LEAK_NOT_DETECTED,
     )
@@ -125,18 +141,8 @@ export class LeakSensorAccessory {
         : Characteristic.StatusFault.NO_FAULT,
     )
 
-    // Only assert a battery level when the API actually reports one; defaulting
-    // a missing reading to "100% / normal" would mislead users during outages.
     const battery = clampBatteryLevel(device.batteryRemaining)
-    if (battery !== undefined) {
-      this.batteryService.updateCharacteristic(Characteristic.BatteryLevel, battery)
-      this.batteryService.updateCharacteristic(
-        Characteristic.StatusLowBattery,
-        isLowBattery(device.batteryRemaining)
-          ? Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
-          : Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL,
-      )
-    }
+    this.updateBattery(device, battery)
 
     const temperature = device.currentSensorReadings?.temperature
     if (this.temperatureService) {
@@ -148,27 +154,73 @@ export class LeakSensorAccessory {
       this.applyReading(this.humidityService, Characteristic.CurrentRelativeHumidity, humidity, offline)
     }
 
-    if (this.freezeService) {
-      const threshold = resolveFreezeThreshold(
-        device,
-        this.options.freezeThresholdCelsius ?? this.defaultFreezeThreshold,
-      )
-      const freezing = isFreezing(temperature, threshold)
-      this.freezeService.updateCharacteristic(
-        Characteristic.ContactSensorState,
-        freezing
-          ? Characteristic.ContactSensorState.CONTACT_NOT_DETECTED
-          : Characteristic.ContactSensorState.CONTACT_DETECTED,
-      )
-      // The derived freeze state is only as trustworthy as the temperature it's
-      // computed from, so fault it when the reading is missing or stale.
-      this.freezeService.updateCharacteristic(
-        Characteristic.StatusFault,
-        typeof temperature !== 'number' || offline
-          ? Characteristic.StatusFault.GENERAL_FAULT
-          : Characteristic.StatusFault.NO_FAULT,
-      )
+    const freeze = this.updateFreezeService(device, temperature, offline)
+
+    this.logActiveAlarms(device, alarmActive)
+    this.logObservedState({
+      leak,
+      online: !offline,
+      lowBattery: battery === undefined ? undefined : isLowBattery(device.batteryRemaining),
+      batteryLevel: battery,
+      freezing: freeze.freezing,
+      temperature,
+      freezeThreshold: freeze.threshold,
+      humidity,
+    })
+  }
+
+  /**
+   * Update the Battery service. Only asserts a level when the API reports one;
+   * defaulting a missing reading to "100% / normal" would mislead during outages.
+   */
+  private updateBattery(device: WaterLeakDetector, battery: number | undefined): void {
+    if (battery === undefined) {
+      return
     }
+    const { Characteristic } = this.platform
+    this.batteryService.updateCharacteristic(Characteristic.BatteryLevel, battery)
+    this.batteryService.updateCharacteristic(
+      Characteristic.StatusLowBattery,
+      isLowBattery(device.batteryRemaining)
+        ? Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
+        : Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL,
+    )
+  }
+
+  /**
+   * Update the optional freeze Contact Sensor and report the freeze state used
+   * for logging. The state is only "known" (not `undefined`) when the sensor is
+   * enabled and a real temperature reading backs it.
+   */
+  private updateFreezeService(
+    device: WaterLeakDetector,
+    temperature: number | undefined,
+    offline: boolean,
+  ): { freezing?: boolean, threshold?: number } {
+    if (!this.freezeService) {
+      return {}
+    }
+    const { Characteristic } = this.platform
+    const threshold = resolveFreezeThreshold(
+      device,
+      this.options.freezeThresholdCelsius ?? this.defaultFreezeThreshold,
+    )
+    const freezing = isFreezing(temperature, threshold)
+    this.freezeService.updateCharacteristic(
+      Characteristic.ContactSensorState,
+      freezing
+        ? Characteristic.ContactSensorState.CONTACT_NOT_DETECTED
+        : Characteristic.ContactSensorState.CONTACT_DETECTED,
+    )
+    // The derived freeze state is only as trustworthy as the temperature it's
+    // computed from, so fault it when the reading is missing or stale.
+    this.freezeService.updateCharacteristic(
+      Characteristic.StatusFault,
+      typeof temperature !== 'number' || offline
+        ? Characteristic.StatusFault.GENERAL_FAULT
+        : Characteristic.StatusFault.NO_FAULT,
+    )
+    return { freezing: typeof temperature === 'number' ? freezing : undefined, threshold }
   }
 
   /**
@@ -178,6 +230,9 @@ export class LeakSensorAccessory {
    */
   private logActiveAlarms(device: WaterLeakDetector, alarmActive: boolean): void {
     if (!alarmActive) {
+      if (this.lastAlarmSignature !== undefined) {
+        this.platform.log.info(`${this.displayName}: alarms cleared`)
+      }
       this.lastAlarmSignature = undefined
       return
     }
@@ -189,6 +244,61 @@ export class LeakSensorAccessory {
     this.lastAlarmSignature = signature
     const summary = types.length > 0 ? types.join(', ') : 'unspecified'
     this.platform.log.warn(`${this.displayName}: active alarm(s) reported: ${summary}`)
+  }
+
+  /**
+   * Log human-meaningful state transitions once when they flip (so the log
+   * reflects what changed each poll, not the unchanging baseline), and emit a
+   * full per-poll snapshot at debug level. The first poll establishes the
+   * baseline silently for a healthy device, but surfaces an already-abnormal
+   * state (leak/offline/low battery/freezing) so startup problems are visible.
+   */
+  private logObservedState(state: ObservedState): void {
+    const prev = this.prev
+    const name = this.displayName
+    const { log } = this.platform
+
+    if (state.leak && !prev?.leak) {
+      log.warn(`${name}: LEAK DETECTED`)
+    } else if (!state.leak && prev?.leak) {
+      log.info(`${name}: leak cleared`)
+    }
+
+    if (!state.online && (prev === undefined || prev.online)) {
+      log.info(`${name}: went offline`)
+    } else if (state.online && prev !== undefined && !prev.online) {
+      log.info(`${name}: back online`)
+    }
+
+    if (state.lowBattery !== undefined) {
+      if (state.lowBattery && !prev?.lowBattery) {
+        log.info(`${name}: low battery (${state.batteryLevel}%)`)
+      } else if (!state.lowBattery && prev?.lowBattery) {
+        log.info(`${name}: battery recovered (${state.batteryLevel}%)`)
+      }
+    }
+
+    if (state.freezing !== undefined) {
+      if (state.freezing && !prev?.freezing) {
+        log.info(`${name}: freezing (${state.temperature}°C ≤ ${state.freezeThreshold}°C)`)
+      } else if (!state.freezing && prev?.freezing) {
+        log.info(`${name}: above freeze threshold (${state.temperature}°C)`)
+      }
+    }
+
+    this.prev = {
+      leak: state.leak,
+      online: state.online,
+      lowBattery: state.lowBattery,
+      freezing: state.freezing,
+    }
+
+    const fmt = (value: number | undefined, unit: string): string =>
+      typeof value === 'number' ? `${value}${unit}` : 'n/a'
+    log.debug(
+      `${name}: poll ok — leak=${state.leak}, temp=${fmt(state.temperature, '°C')}, `
+      + `humidity=${fmt(state.humidity, '%')}, battery=${fmt(state.batteryLevel, '%')}, online=${state.online}`,
+    )
   }
 
   /**
