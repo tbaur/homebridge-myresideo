@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.7](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.6...v0.1.7) (2026-06-29)
+
+
+### Bug Fixes
+
+* gate token exchange on a warmed UI server and bound every call ([a094a5c](https://github.com/tbaur/homebridge-myresideo/commit/a094a5c9855f1ef638abe529b0c0ffb07b396412))
+
 ## [0.1.6](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.5...v0.1.6) (2026-06-29)
 
 
