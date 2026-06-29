@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.4](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.3...v0.1.4) (2026-06-29)
+
+
+### Bug Fixes
+
+* build authorize URL client-side so first-install sign-in never hangs ([438c08c](https://github.com/tbaur/homebridge-myresideo/commit/438c08cecde543cd3a8d6caf4d5128cac0167f5e))
+
 ## [0.1.3](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.2...v0.1.3) (2026-06-29)
 
 
