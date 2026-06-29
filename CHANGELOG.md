@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.1.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.0.1...v1.1.0) (2026-06-29)
+
+
+### Features
+
+* add opt-in health diagnostics reporting ([#40](https://github.com/tbaur/homebridge-myresideo/issues/40)) ([45c469d](https://github.com/tbaur/homebridge-myresideo/commit/45c469d6b76e8ec205532c0f8a042d18985335b1))
+
 ## [1.0.1](https://github.com/tbaur/homebridge-myresideo/compare/v1.0.0...v1.0.1) (2026-06-29)
 
 
