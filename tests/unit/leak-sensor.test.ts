@@ -81,6 +81,9 @@ function makeAccessory(device: WaterLeakDetector) {
       services.set(type, s)
       return s
     }),
+    removeService: jest.fn((svc: MockService) => {
+      services.delete(svc.type)
+    }),
     services,
   }
 }
@@ -205,6 +208,27 @@ describe('LeakSensorAccessory', () => {
   it('omits the temperature service when hidden', () => {
     const { accessory } = build(baseDevice(), { deviceID: 'dev-1', hideTemperatureSensor: true })
     expect(accessory.services.get(Service.TemperatureSensor)).toBeUndefined()
+  })
+
+  it('removes a previously-added optional service when it is later disabled', () => {
+    // Simulate a cached accessory that already carries the optional services
+    // from a prior config (temperature/humidity visible, freeze enabled).
+    const accessory = makeAccessory(baseDevice())
+    accessory.addService(Service.TemperatureSensor)
+    accessory.addService(Service.HumiditySensor)
+    accessory.addService(Service.ContactSensor)
+    const platform = { Service, Characteristic, log: makeLog() } as unknown as ResideoPlatform
+
+    // Re-create the handler with all three optional services turned off.
+    new LeakSensorAccessory(
+      platform,
+      accessory as unknown as PlatformAccessory,
+      { deviceID: 'dev-1', hideTemperatureSensor: true, hideHumiditySensor: true, enableFreezeSensor: false },
+    )
+
+    expect(accessory.services.get(Service.TemperatureSensor)).toBeUndefined()
+    expect(accessory.services.get(Service.HumiditySensor)).toBeUndefined()
+    expect(accessory.services.get(Service.ContactSensor)).toBeUndefined()
   })
 
   it('trips the freeze contact sensor when below threshold', () => {

@@ -93,18 +93,26 @@ export class LeakSensorAccessory {
         ?? this.accessory.addService(Service.TemperatureSensor)
       // Distinct service names so broken-out tiles aren't all the accessory name.
       this.temperatureService.setCharacteristic(Characteristic.Name, `${this.displayName} Temperature`)
+    } else {
+      // The option was toggled off after the service had already been added to a
+      // cached accessory; drop the now-orphaned service so it leaves HomeKit too.
+      this.removeService(this.accessory.getService(Service.TemperatureSensor))
     }
 
     if (!options.hideHumiditySensor) {
       this.humidityService = this.accessory.getService(Service.HumiditySensor)
         ?? this.accessory.addService(Service.HumiditySensor)
       this.humidityService.setCharacteristic(Characteristic.Name, `${this.displayName} Humidity`)
+    } else {
+      this.removeService(this.accessory.getService(Service.HumiditySensor))
     }
 
     if (options.enableFreezeSensor) {
       this.freezeService = this.accessory.getService(Service.ContactSensor)
         ?? this.accessory.addService(Service.ContactSensor)
       this.freezeService.setCharacteristic(Characteristic.Name, `${this.displayName} Freeze`)
+    } else {
+      this.removeService(this.accessory.getService(Service.ContactSensor))
     }
 
     this.updateStatus(device)
@@ -112,6 +120,17 @@ export class LeakSensorAccessory {
 
   private get displayName(): string {
     return this.options.name || this.accessory.displayName
+  }
+
+  /**
+   * Remove an optional service that a cached accessory still carries after the
+   * user disabled it (e.g. set `hideTemperatureSensor`/`hideHumiditySensor` or
+   * cleared `enableFreezeSensor`). A no-op when the service was never present.
+   */
+  private removeService(service: Service | undefined): void {
+    if (service) {
+      this.accessory.removeService(service)
+    }
   }
 
   /** Push the latest device state into all HomeKit characteristics. */
