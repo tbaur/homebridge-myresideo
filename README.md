@@ -134,15 +134,6 @@ The plugin talks to Resideo over TLS only, redacts tokens and the `apikey` from 
 
 ## More Info
 
-- [Features](docs/FEATURES.md)
-- [API Reference](docs/API.md)
-- [Authentication & Token Lifecycle](docs/AUTH.md)
-- [Development](DEVELOPMENT.md)
-- [Security Policy](SECURITY.md)
-- [Contributing](CONTRIBUTING.md)
-- [Releasing](RELEASING.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Review (security/reliability/maintainability)](docs/REVIEW.md)
 - [Report Issues](https://github.com/tbaur/homebridge-myresideo/issues)
 - [Changelog](CHANGELOG.md)
 
