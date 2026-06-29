@@ -113,12 +113,22 @@
       const byId = id => document.getElementById(id)
       const log = (...args) => console.info('[resideo-ui]', ...args)
 
+      // config-ui-x dispatches 'ready' on the homebridge object once it has
+      // spawned our server child and wired up the request/response bridge.
+      // Calling homebridge.request() before this fires is unsafe: the child
+      // receives the request and replies, but config-ui-x has nowhere to route
+      // the reply yet, so it is silently dropped and the call hangs. Register
+      // the flag listener as early as possible so the signal is never missed.
+      let homebridgeReady = false
+      homebridge.addEventListener('ready', () => {
+        homebridgeReady = true
+        log('homebridge UI bridge ready')
+      })
+
       // homebridge.request()/savePluginConfig()/etc. all funnel through an
       // internal _requestResponse() that waits forever for the parent's reply.
-      // config-ui-x can drop the reply to the very first request sent to a
-      // freshly spawned UI-server child, and its config.save reply can be
-      // dropped by a structured-clone error — either of which leaves the
-      // spinner stuck. These helpers bound every call so that can never happen.
+      // config-ui-x's config.save reply can also be dropped by a structured-
+      // clone error. These helpers bound every call so the spinner can't stick.
 
       // The token exchange is a single network round-trip to Resideo; bound it
       // generously so a dropped reply surfaces as an error instead of hanging.
@@ -145,28 +155,27 @@
         ])
       }
 
-      // Ping the UI-server child until it answers, so the one-time token
-      // exchange is never the cold-start request whose reply can be dropped.
-      // /ping is idempotent, so retrying it is always safe.
-      const PING_ATTEMPTS = 8
-      const PING_TIMEOUT_MS = 2000
-      const pingOnce = () =>
-        Promise.race([
-          homebridge.request('/ping').then(() => true).catch(() => false),
-          new Promise(resolve => setTimeout(() => resolve(false), PING_TIMEOUT_MS)),
-        ])
-      const warmUpServer = async () => {
-        for (let attempt = 1; attempt <= PING_ATTEMPTS; attempt++) {
-          if (await pingOnce()) {
-            log('server ready after ping attempt', attempt)
-            return true
-          }
-          log('ping attempt', attempt, 'did not answer; retrying')
+      // Resolve true once config-ui-x signals the bridge is ready, false if it
+      // never does within the timeout. A timeout effectively only happens when
+      // the session is stale — e.g. the plugin was reinstalled/updated while
+      // this settings window stayed open — in which case closing and reopening
+      // settings (no full page reload needed) re-establishes the bridge.
+      const READY_TIMEOUT_MS = 10000
+      const waitForReady = () => new Promise(resolve => {
+        if (homebridgeReady) {
+          resolve(true)
+          return
         }
-        log('server never answered ping after', PING_ATTEMPTS, 'attempts')
-        return false
-      }
-      let serverReady = warmUpServer()
+        let settled = false
+        const finish = ok => {
+          if (!settled) {
+            settled = true
+            resolve(ok)
+          }
+        }
+        homebridge.addEventListener('ready', () => finish(true))
+        setTimeout(() => finish(homebridgeReady), READY_TIMEOUT_MS)
+      })
 
       const keyEl = byId('resideoKey')
       const secretEl = byId('resideoSecret')
@@ -310,14 +319,11 @@
         }
         homebridge.showSpinner()
         try {
-          // Make sure the UI-server child is actually answering before we send
-          // the single-use code. If the initial warm-up gave up, try once more
-          // (the child may simply have been slow to spawn).
-          if (!(await serverReady)) {
-            serverReady = warmUpServer()
-            if (!(await serverReady)) {
-              throw new Error('The linking service did not respond. Reload this page and try again.')
-            }
+          // Don't send the single-use code until config-ui-x has wired up the
+          // bridge to our server child, otherwise the reply is dropped and the
+          // exchange hangs.
+          if (!(await waitForReady())) {
+            throw new Error('Could not reach the Homebridge UI service. Close this settings window and reopen it, then try again.')
           }
           log('exchanging authorization code')
           const tokens = await withTimeout(
