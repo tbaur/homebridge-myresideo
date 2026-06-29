@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.8](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.7...v0.1.8) (2026-06-29)
+
+
+### Bug Fixes
+
+* wait for config-ui-x 'ready' before requesting the server child ([7520c80](https://github.com/tbaur/homebridge-myresideo/commit/7520c80d2071a54a6df225dcbf5498cd06ddd2a2))
+
 ## [0.1.7](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.6...v0.1.7) (2026-06-29)
 
 
