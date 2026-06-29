@@ -30,7 +30,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 
 ### Quality
 - **Strict TypeScript** — `strict` mode (`noImplicitAny`, `strictNullChecks`, no unused locals/params, no implicit returns, and more)
-- **Tested Core** — Jest suite with a ≥80% coverage gate (currently ~95% lines)
+- **Tested Core** — Jest suite with a ≥80% coverage gate across statements, branches, functions, and lines
 - **CI on Every PR** — Build, lint, and test across Node 20/22/24, plus a dependency audit
 - **No Analytics** — Zero tracking or data collection
 

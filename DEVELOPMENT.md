@@ -36,7 +36,7 @@ scripts/
 
 ## Reliability & performance
 
-This plugin talks to a **poll-based** REST API (Honeywell Home exposes no documented realtime push for leak detectors), so the resilience surface is deliberately smaller than a WebSocket-driven plugin:
+This plugin talks to a **poll-based** REST API, so its resilience focuses on making each polling cycle robust:
 
 - **Token lifecycle** — a config-supplied access token is used optimistically once, then access tokens refresh ahead of expiry and on `401`; concurrent refreshes are de-duplicated (single-flight); rotated refresh tokens are persisted back to `config.json` atomically (temp file + rename).
 - **Transient-error retry** — network errors, timeouts, `5xx`, and `429` responses retry with jittered exponential backoff (a `429` `Retry-After` header is honored when present); this applies to both API calls and the token-refresh request. `401` triggers one refresh-and-retry; `403` (`ForbiddenError`) and other `4xx` do not retry.

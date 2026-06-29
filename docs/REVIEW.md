@@ -1,6 +1,6 @@
 # Security, Reliability, Maintainability & Serviceability Review
 
-This document is a **point-in-time assessment** of the plugin against the engineering standard used across these Homebridge plugins. It reflects the current codebase after a principal-level audit and the resulting fixes, not a claim of zero defects. This is an early-stage plugin (0.x); some areas are intentionally lighter than a mature, realtime-push plugin because the Resideo / Honeywell Home API for leak detectors is **poll-only**.
+This document summarizes the plugin's security, reliability, maintainability, and serviceability posture and the practices that uphold it. The Resideo / Honeywell Home API for leak detectors is **poll-only**, so the design centers on resilient polling, robust OAuth2 token handling, and careful failure isolation.
 
 ---
 
@@ -30,7 +30,7 @@ This document is a **point-in-time assessment** of the plugin against the engine
 | **Polling** | ✅ | Fixed cadence (120s default, 30s min); bounded concurrency (4) with an in-flight guard that skips overlapping ticks; immediate first poll after discovery |
 | **Discovery Resilience** | ✅ | Self-healing retry with capped exponential backoff (15s → 5min) on transient errors; non-recoverable auth/config errors are not retried |
 | **Accessory Lifecycle** | ✅ | Detectors removed from the account are unregistered; per-device poll failures are isolated |
-| **Stale-Data Safety** | ✅ | Missing temperature/humidity raises `StatusFault`; absent battery is not asserted as a misleading default |
+| **Stale-Data Safety** | ✅ | Missing/stale temperature/humidity and an offline device or active alarm raise `StatusFault`; absent battery is not asserted as a misleading default |
 | **Config Persistence** | ✅ | Rotated refresh token written atomically (temp file + rename) to the matching platform block |
 
 ---
@@ -40,7 +40,7 @@ This document is a **point-in-time assessment** of the plugin against the engine
 | Area | Status | Notes |
 |------|--------|-------|
 | **TypeScript** | ✅ | Strict mode; production and tests compile under the same strict settings (`tsconfig.test.json`); HAP types from the `homebridge` dev dependency |
-| **Test Coverage** | ✅ | **106 tests**, ~94% line / ~86% branch coverage across `src/` including `platform.ts` (~90%) and `leak-sensor.ts` (100%) |
+| **Test Coverage** | ✅ | Unit + integration suites with a ≥80% coverage gate across `src/`, including the platform and accessory layers (mocked HAP surface) |
 | **Code Organization** | ✅ | `api/`, `devices/`, `utils/` (mappers/sanitizers/validators/backoff), `errors/`, `types/` |
 | **Dependencies** | ✅ | Zero runtime dependencies (native `https`) |
 | **Lint** | ✅ | ESLint flat config, 0 errors |
@@ -54,19 +54,14 @@ This document is a **point-in-time assessment** of the plugin against the engine
 | **Logging** | ✅ | Uses the Homebridge logger; all error logging routed through `sanitizeError` |
 | **Config Schema ↔ Validators** | ✅ | `config.schema.json` and `validateConfig` cover the same fields; `name` is optional in both |
 | **Differentiated Errors** | ✅ | Invalid refresh token vs. rejected API credentials are logged distinctly so users know whether to re-link or fix credentials |
-| **Structured Diagnostics** | ⚠️ | No diagnostics/health-heartbeat subsystem yet (deferred — see "Deliberately deferred") |
+| **Structured Diagnostics** | ⚠️ | No dedicated diagnostics/health-heartbeat subsystem; standard logging covers current needs |
 | **Integration Smoke Tests** | ✅ | `tests/integration/network.test.ts` exercises the native transport with `nock` (no live API) |
 
 ---
 
-## Deliberately deferred (vs. the realtime-push sibling plugin)
+## Scope
 
-These exist in the WebSocket-based sibling plugin but are **not** carried over, because they would be premature for a poll-only, single-device-type plugin (per the project's KISS guidance). They are revisited if scope or load justifies them:
-
-- **WebSocket / realtime push** — the Honeywell Home leak-detector API exposes no documented push channel.
-- **Rate limiter** — a single poll every ≥30s across a handful of devices does not approach API limits.
-- **Circuit breaker / request queue** — retry-with-backoff plus bounded timeouts cover the current failure modes.
-- **Diagnostics subsystem & structured JSON logging** — not warranted until field telemetry shows a need.
+The plugin targets a single device type (the WiFi Water Leak & Freeze Detector) over a poll-only REST API, and is intentionally kept small and dependency-free. Heavier infrastructure — a dedicated diagnostics subsystem and structured JSON logging — is not part of the current design; it can be added if field needs justify it. Adding support for other Honeywell Home device types is outlined in [`DEVELOPMENT.md`](../DEVELOPMENT.md).
 
 ---
 
@@ -77,15 +72,13 @@ These exist in the WebSocket-based sibling plugin but are **not** carried over, 
 | **Security** | Strong; documented config-secret residual risk |
 | **Reliability** | Strong; token-refresh, discovery, polling, and persistence all hardened |
 | **Maintainability** | Strong; small, well-tested (incl. platform/accessory), dependency-free core |
-| **Serviceability** | Good; diagnostics subsystem intentionally deferred |
+| **Serviceability** | Good; standard logging, no dedicated diagnostics subsystem |
 
-The remaining items for broad production sign-off are **feature/verification** work, not defects: a built-in account-linking UI (tokens are currently obtained manually) and live verification against real hardware. Both are tracked in [`ROADMAP.md`](ROADMAP.md).
+Planned enhancements (a built-in account-linking UI, since tokens are currently obtained manually) are tracked in [`ROADMAP.md`](ROADMAP.md).
 
-### Overall: Early-stage, production-quality foundation
+### Quality gates
 
-```
-Tests:       106 passing (unit + integration smoke)
-Coverage:    ~94% lines / ~86% branches across src/ (incl. platform.ts and leak-sensor.ts)
-Lint:        0 errors
-Audit:       run in CI on every push/PR
-```
+- **Tests** — unit + integration (nock-backed) suites, run in CI.
+- **Coverage** — ≥80% gate across statements, branches, functions, and lines for `src/`.
+- **Lint** — ESLint flat config, zero errors.
+- **Audit** — `npm audit` runs in CI on every push and pull request.
