@@ -21,7 +21,14 @@ import type {
 
 import { ResideoApiClient, TokenManager } from './api'
 import { LeakSensorAccessory } from './devices/leak-sensor'
-import { AuthenticationError, ConfigurationError, RefreshTokenInvalidError } from './errors'
+import {
+  ApiParseError,
+  ApiResponseError,
+  AuthenticationError,
+  ConfigurationError,
+  ForbiddenError,
+  RefreshTokenInvalidError,
+} from './errors'
 import {
   DEFAULT_REFRESH_RATE_SEC,
   INITIAL_DISCOVERY_RETRY_MS,
@@ -33,7 +40,7 @@ import {
   UUID_PREFIX,
 } from './settings'
 import type { LeakDetectorOptions, ResideoPlatformConfig, WaterLeakDetector } from './types'
-import { isWaterLeakDetector, maskToken, sanitizeError, validateConfig } from './utils'
+import { isWaterLeakDetector, maskToken, sanitizeError, sanitizeFreezeThreshold, validateConfig } from './utils'
 
 export default class ResideoPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof ServiceClass
@@ -51,6 +58,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   private discoveryAttempt = 0
   private isPolling = false
   private stopped = false
+  /** True when startup validation failed; the platform stays inert. */
+  private disabled = false
 
   constructor(
     public readonly log: Logging,
@@ -70,6 +79,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         this.log.error(error)
       }
       this.log.error('Invalid configuration; plugin will not start until it is corrected.')
+      this.disabled = true
       return
     }
 
@@ -106,12 +116,23 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
 
   /** Restore an accessory from the Homebridge cache. */
   configureAccessory(accessory: PlatformAccessory): void {
+    if (this.disabled) {
+      this.log.debug(
+        `Platform disabled by invalid config; cached accessory "${accessory.displayName}" will not be updated.`,
+      )
+    }
     this.accessories.push(accessory)
   }
 
   private get refreshRateMs(): number {
-    const configured = this.config.options?.refreshRate ?? DEFAULT_REFRESH_RATE_SEC
-    return Math.max(configured, MIN_REFRESH_RATE_SEC) * 1000
+    // A non-numeric/NaN refreshRate (e.g. a stray string in config.json) must
+    // never reach setInterval: Math.max(NaN, min) is NaN, which setInterval
+    // coerces to 0 and would hammer the API. Fall back to the default instead.
+    const configured = this.config.options?.refreshRate
+    const seconds = typeof configured === 'number' && !Number.isNaN(configured)
+      ? configured
+      : DEFAULT_REFRESH_RATE_SEC
+    return Math.max(seconds, MIN_REFRESH_RATE_SEC) * 1000
   }
 
   private async discoverDevices(): Promise<void> {
@@ -154,11 +175,27 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     }
   }
 
-  /** Errors that re-linking or fixing credentials can't be retried away from. */
+  /**
+   * Errors that retrying discovery cannot resolve, so we stop instead of
+   * looping the capped backoff forever and spamming the log. This covers bad
+   * credentials/re-link conditions ({@link AuthenticationError} and its
+   * {@link RefreshTokenInvalidError} subclass, {@link ConfigurationError}), a
+   * permissions problem ({@link ForbiddenError}), an unparseable/unexpected
+   * payload ({@link ApiParseError}), and any non-retryable HTTP response such
+   * as a 404 ({@link ApiResponseError} with `isRetryable === false`). Transient
+   * 5xx/network/timeout errors remain retryable.
+   */
   private isFatal(err: unknown): boolean {
-    return err instanceof RefreshTokenInvalidError
+    if (err instanceof AuthenticationError
       || err instanceof ConfigurationError
-      || err instanceof AuthenticationError
+      || err instanceof ForbiddenError
+      || err instanceof ApiParseError) {
+      return true
+    }
+    if (err instanceof ApiResponseError) {
+      return !err.isRetryable
+    }
+    return false
   }
 
   /**
@@ -181,7 +218,14 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   }
 
   private registerDevice(device: WaterLeakDetector, locationId: number): void {
-    const options = this.optionsForDevice(device.deviceID)
+    const rawOptions = this.optionsForDevice(device.deviceID)
+    // Drop out-of-range/non-numeric thresholds here so the device's own limit
+    // (or the plugin default) is used, matching what validateConfig warns about.
+    const options: LeakDetectorOptions = {
+      ...rawOptions,
+      freezeThresholdCelsius: sanitizeFreezeThreshold(rawOptions.freezeThresholdCelsius),
+    }
+    const defaultFreezeThreshold = sanitizeFreezeThreshold(this.config.options?.freezeThresholdCelsius)
     const displayName = options.name || device.userDefinedDeviceName || 'Water Leak Detector'
     const uuid = this.api.hap.uuid.generate(`${UUID_PREFIX}${device.deviceID}`)
     this.locationByDevice.set(device.deviceID, locationId)
@@ -189,6 +233,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     let accessory = this.accessories.find(a => a.UUID === uuid)
     if (accessory) {
       accessory.context.device = device
+      // Keep the cached accessory's name in step with a changed config/device name.
+      accessory.displayName = displayName
       this.api.updatePlatformAccessories([accessory])
     } else {
       accessory = new this.api.platformAccessory(displayName, uuid)
@@ -198,15 +244,15 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       this.log.info(`Registered new water leak detector: ${displayName}`)
     }
 
-    const handler = new LeakSensorAccessory(this, accessory, options, this.config.options?.freezeThresholdCelsius)
+    const handler = new LeakSensorAccessory(this, accessory, options, defaultFreezeThreshold)
     this.handlers.set(device.deviceID, handler)
   }
 
   /** Unregister cached accessories that are no longer present in the account. */
   private pruneStaleAccessories(currentDeviceIds: Set<string>): void {
     const stale = this.accessories.filter((accessory) => {
-      const device = accessory.context.device as WaterLeakDetector | undefined
-      return Boolean(device?.deviceID) && !currentDeviceIds.has(device!.deviceID)
+      const id = (accessory.context.device as WaterLeakDetector | undefined)?.deviceID
+      return id !== undefined && id !== '' && !currentDeviceIds.has(id)
     })
     if (stale.length === 0) {
       return
@@ -310,8 +356,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
 
   /**
    * Persist a rotated refresh token back into config.json so it survives a
-   * Homebridge restart. Best-effort: failures are logged, not thrown. Writes
-   * atomically (temp file + rename) so a crash mid-write cannot corrupt config.
+   * Homebridge restart. Writes atomically (temp file + rename) so a crash
+   * mid-write cannot corrupt config. A failure here is serious — the rotated
+   * token is only in memory, so the next restart will read the now-invalidated
+   * old token and require re-linking — so it is logged at error level with that
+   * consequence spelled out, but never thrown (rotation already succeeded).
    */
   private async persistRefreshToken(newRefreshToken: string): Promise<void> {
     this.config.credentials.refreshToken = newRefreshToken
@@ -320,16 +369,45 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       const raw = await fs.readFile(configPath, 'utf8')
       const parsed = JSON.parse(raw) as { platforms?: ResideoPlatformConfig[] }
       const blocks = parsed.platforms?.filter(p => p.platform === PLATFORM_NAME) ?? []
-      const block = blocks.find(p => p.name === this.config.name) ?? blocks[0]
-      if (block?.credentials) {
-        block.credentials.refreshToken = newRefreshToken
-        const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`
-        await fs.writeFile(tempPath, JSON.stringify(parsed, null, 4), 'utf8')
-        await fs.rename(tempPath, configPath)
-        this.log.debug(`Persisted rotated refresh token to config.json (${maskToken(newRefreshToken)})`)
+      const block = this.selectConfigBlock(blocks)
+      if (!block?.credentials) {
+        this.log.error(
+          'Could not persist the rotated refresh token: this platform block was not found in config.json. '
+          + 'A future Homebridge restart may require re-linking your account.',
+        )
+        return
       }
+      block.credentials.refreshToken = newRefreshToken
+      const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`
+      await fs.writeFile(tempPath, JSON.stringify(parsed, null, 4), 'utf8')
+      await fs.rename(tempPath, configPath)
+      this.log.debug(`Persisted rotated refresh token to config.json (${maskToken(newRefreshToken)})`)
     } catch (err) {
-      this.log.warn(`Could not persist rotated refresh token: ${sanitizeError(err)}`)
+      this.log.error(
+        `Could not persist the rotated refresh token: ${sanitizeError(err)}. `
+        + 'A future Homebridge restart may require re-linking your account.',
+      )
     }
+  }
+
+  /**
+   * Choose which platform block to write the rotated token into. With a single
+   * block the choice is unambiguous; with several, only a unique name match is
+   * safe. Refuse to guess when multiple blocks share this instance's name,
+   * rather than risk writing the token into the wrong instance's credentials.
+   */
+  private selectConfigBlock(blocks: ResideoPlatformConfig[]): ResideoPlatformConfig | undefined {
+    if (blocks.length <= 1) {
+      return blocks[0]
+    }
+    const named = blocks.filter(p => p.name === this.config.name)
+    if (named.length === 1) {
+      return named[0]
+    }
+    this.log.error(
+      'Multiple MyResideo platform blocks share the same name; cannot safely persist the rotated '
+      + 'refresh token. Give each platform block a unique "name" in config.json.',
+    )
+    return undefined
   }
 }

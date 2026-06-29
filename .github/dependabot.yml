@@ -1,5 +1,7 @@
-# Dependabot keeps dependencies current. This project ships zero runtime
-# dependencies, so npm updates are dev-only; we group them to reduce PR noise.
+# Dependabot keeps dependencies current. The Homebridge runtime path pulls in no
+# third-party code (native https); the only runtime dependency is
+# @homebridge/plugin-ui-utils, used by the optional account-linking UI. Updates
+# are grouped to reduce PR noise.
 # See: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2

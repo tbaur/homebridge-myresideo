@@ -54,11 +54,19 @@ class ResideoUiServer extends HomebridgePluginUiServer {
 
     try {
       const tokens = await exchangeAuthorizationCode({ consumerKey, consumerSecret, code, redirectUri })
+      // Guard against an unexpected response shape so the UI never saves
+      // undefined tokens that would silently break polling after a restart.
+      if (!asTrimmedString(tokens && tokens.access_token) || !asTrimmedString(tokens && tokens.refresh_token)) {
+        throw new RequestError('Resideo did not return the expected tokens. Please try linking again.')
+      }
       return {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
       }
     } catch (err) {
+      if (err instanceof RequestError) {
+        throw err
+      }
       throw new RequestError(sanitizeError(err))
     }
   }

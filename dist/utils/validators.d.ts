@@ -20,6 +20,14 @@ export interface ConfigValidationResult {
     warnings: string[];
 }
 /**
+ * Return a freeze threshold only when it is a usable number within the
+ * plausible range, otherwise `undefined`. Callers fall back to the device's own
+ * limit (or the plugin default), which is exactly what {@link validateConfig}
+ * warns about for an out-of-range value, keeping the warning and the runtime
+ * behavior in agreement.
+ */
+export declare function sanitizeFreezeThreshold(value: number | undefined): number | undefined;
+/**
  * Validate the platform configuration block. Pure and side-effect free so it is
  * trivially unit-testable; the caller decides how to surface the results.
  */

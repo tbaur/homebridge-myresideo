@@ -36,7 +36,14 @@ class ResideoApiClient {
     }
     /** GET all locations (with their embedded devices) for the authenticated user. */
     async getLocations() {
-        return this.get(settings_1.LOCATIONS_URL, {});
+        const locations = await this.get(settings_1.LOCATIONS_URL, {});
+        // The locations endpoint must return an array; anything else (an object,
+        // null, an error envelope) would otherwise blow up when the caller iterates
+        // it, so surface it as a typed, non-retryable parse error.
+        if (!Array.isArray(locations)) {
+            throw new errors_1.ApiParseError('Locations response was not an array; the API returned an unexpected payload.');
+        }
+        return locations;
     }
     /** GET a single water leak detector's current status. */
     async getWaterLeakDetector(deviceID, locationId) {
@@ -164,7 +171,17 @@ function defaultTransport(url, accessToken, timeoutMs) {
             timeout: timeoutMs,
         }, (res) => {
             const chunks = [];
-            res.on('data', chunk => chunks.push(node_buffer_1.Buffer.isBuffer(chunk) ? chunk : node_buffer_1.Buffer.from(chunk)));
+            let total = 0;
+            res.on('data', (chunk) => {
+                const buf = node_buffer_1.Buffer.isBuffer(chunk) ? chunk : node_buffer_1.Buffer.from(chunk);
+                total += buf.length;
+                if (total > settings_1.MAX_RESPONSE_BODY_BYTES) {
+                    req.destroy();
+                    reject(new errors_1.NetworkError(`Response body exceeded the ${settings_1.MAX_RESPONSE_BODY_BYTES}-byte limit`));
+                    return;
+                }
+                chunks.push(buf);
+            });
             res.on('end', () => resolve({
                 status: res.statusCode ?? 0,
                 body: node_buffer_1.Buffer.concat(chunks).toString('utf8'),

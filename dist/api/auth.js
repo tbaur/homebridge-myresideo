@@ -130,6 +130,9 @@ class TokenManager {
         throw lastError instanceof Error ? lastError : new errors_1.NetworkError('Token refresh failed');
     }
     applyToken(token) {
+        if (typeof token.access_token !== 'string' || token.access_token.length === 0) {
+            throw new errors_1.ApiParseError('Token response did not include a usable access_token');
+        }
         const ttlSec = Number(token.expires_in) || settings_1.DEFAULT_TOKEN_TTL_SEC;
         // Floor the usable lifetime so a pathologically short TTL (≤ the refresh
         // buffer) can't make a brand-new token look already-expired and stampede
@@ -247,7 +250,17 @@ function defaultRequestToken(formBody, basicAuth) {
             timeout: settings_1.DEFAULT_REQUEST_TIMEOUT_MS,
         }, (res) => {
             const chunks = [];
-            res.on('data', chunk => chunks.push(node_buffer_1.Buffer.isBuffer(chunk) ? chunk : node_buffer_1.Buffer.from(chunk)));
+            let total = 0;
+            res.on('data', (chunk) => {
+                const buf = node_buffer_1.Buffer.isBuffer(chunk) ? chunk : node_buffer_1.Buffer.from(chunk);
+                total += buf.length;
+                if (total > settings_1.MAX_RESPONSE_BODY_BYTES) {
+                    req.destroy();
+                    reject(new errors_1.NetworkError(`Token response body exceeded the ${settings_1.MAX_RESPONSE_BODY_BYTES}-byte limit`));
+                    return;
+                }
+                chunks.push(buf);
+            });
             res.on('end', () => {
                 const raw = node_buffer_1.Buffer.concat(chunks).toString('utf8');
                 const status = res.statusCode ?? 0;

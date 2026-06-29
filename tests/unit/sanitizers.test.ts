@@ -39,6 +39,14 @@ describe('sanitizeString', () => {
     expect(sanitizeString('client_secret=zzz')).not.toContain('zzz')
   })
 
+  it('redacts the consumer key / OAuth client_id', () => {
+    const json = sanitizeString('{"consumerKey":"abc123key"}')
+    expect(json).not.toContain('abc123key')
+    expect(sanitizeString('consumerKey=abc123key here')).not.toContain('abc123key')
+    expect(sanitizeString('https://api.honeywellhome.com/oauth2/authorize?client_id=abc123key&x=1'))
+      .not.toContain('abc123key')
+  })
+
   it('fully redacts a Basic auth credential (base64 value does not survive)', () => {
     const out = sanitizeString('Authorization: Basic a2V5OnNlY3JldA==')
     expect(out).not.toContain('a2V5OnNlY3JldA')

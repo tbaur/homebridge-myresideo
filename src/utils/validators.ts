@@ -32,6 +32,27 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+/** True when a freeze threshold is a real number within the plausible bounds. */
+function isValidFreezeThreshold(value: number): boolean {
+  return !Number.isNaN(value)
+    && value >= MIN_FREEZE_THRESHOLD_C
+    && value <= MAX_FREEZE_THRESHOLD_C
+}
+
+/**
+ * Return a freeze threshold only when it is a usable number within the
+ * plausible range, otherwise `undefined`. Callers fall back to the device's own
+ * limit (or the plugin default), which is exactly what {@link validateConfig}
+ * warns about for an out-of-range value, keeping the warning and the runtime
+ * behavior in agreement.
+ */
+export function sanitizeFreezeThreshold(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !isValidFreezeThreshold(value)) {
+    return undefined
+  }
+  return value
+}
+
 /**
  * Whether a per-device entry carries any actual override beyond its (here
  * missing) deviceID. An entirely empty row — e.g. one the settings UI adds and
@@ -47,6 +68,23 @@ function hasMeaningfulDeviceOverride(device: LeakDetectorOptions | undefined): b
     || device.hideTemperatureSensor === true
     || device.hideHumiditySensor === true
     || device.enableFreezeSensor === true
+}
+
+/**
+ * Build the warning(s) for a freeze-threshold value at a given config path. An
+ * invalid (non-numeric or out-of-range) value is sanitized away at runtime by
+ * {@link sanitizeFreezeThreshold}, so the "using the default instead" wording
+ * is accurate.
+ */
+function freezeThresholdWarnings(value: unknown, path: string): string[] {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return [`${path} must be a number; using the default instead.`]
+  }
+  if (!isValidFreezeThreshold(value)) {
+    return [`${path} ${value} is outside the plausible range `
+      + `(${MIN_FREEZE_THRESHOLD_C}..${MAX_FREEZE_THRESHOLD_C}°C); using the default instead.`]
+  }
+  return []
 }
 
 /**
@@ -86,12 +124,7 @@ export function validateConfig(config: ResideoPlatformConfig | undefined): Confi
     }
 
     if (freezeThresholdCelsius !== undefined) {
-      if (typeof freezeThresholdCelsius !== 'number' || Number.isNaN(freezeThresholdCelsius)) {
-        warnings.push('options.freezeThresholdCelsius must be a number; using the default instead.')
-      } else if (freezeThresholdCelsius < MIN_FREEZE_THRESHOLD_C || freezeThresholdCelsius > MAX_FREEZE_THRESHOLD_C) {
-        warnings.push(`options.freezeThresholdCelsius ${freezeThresholdCelsius} is outside the plausible range `
-          + `(${MIN_FREEZE_THRESHOLD_C}..${MAX_FREEZE_THRESHOLD_C}°C); using the default instead.`)
-      }
+      warnings.push(...freezeThresholdWarnings(freezeThresholdCelsius, 'options.freezeThresholdCelsius'))
     }
 
     if (devices !== undefined) {
@@ -104,6 +137,11 @@ export function validateConfig(config: ResideoPlatformConfig | undefined): Confi
           // deviceID it needs to apply.
           if (!isNonEmptyString(device?.deviceID) && hasMeaningfulDeviceOverride(device)) {
             warnings.push(`options.devices[${index}] is configured but missing a deviceID and will be ignored.`)
+          }
+          if (device?.freezeThresholdCelsius !== undefined) {
+            warnings.push(
+              ...freezeThresholdWarnings(device.freezeThresholdCelsius, `options.devices[${index}].freezeThresholdCelsius`),
+            )
           }
         })
       }

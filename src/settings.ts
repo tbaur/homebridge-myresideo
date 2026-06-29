@@ -63,6 +63,13 @@ export const MAX_API_RETRY_ATTEMPTS = 3
 export const MAX_RETRY_AFTER_MS = 60_000
 
 /**
+ * Cap on how many bytes a single API or token response body may buffer. Real
+ * Resideo payloads are a few KB; this guards against a buggy/hostile endpoint
+ * streaming an unbounded body into memory and exhausting the process.
+ */
+export const MAX_RESPONSE_BODY_BYTES = 5 * 1024 * 1024
+
+/**
  * Number of devices polled concurrently each cycle. Keeps API fan-out bounded
  * while still parallelizing so cycle time does not grow linearly with devices.
  */

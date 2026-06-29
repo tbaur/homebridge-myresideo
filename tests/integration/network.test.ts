@@ -13,10 +13,11 @@ import nock from 'nock'
 import { TokenManager } from '../../src/api/auth'
 import { ResideoApiClient } from '../../src/api/client'
 import { ConfigurationError, NetworkError, RefreshTokenInvalidError, TimeoutError } from '../../src/errors'
-import { API_BASE_URL } from '../../src/settings'
+import { API_BASE_URL, MAX_RESPONSE_BODY_BYTES } from '../../src/settings'
 import type { TokenManager as TokenManagerType } from '../../src/api/auth'
 
 const BASE = API_BASE_URL
+const OVERSIZED_BODY = 'x'.repeat(MAX_RESPONSE_BODY_BYTES + 1)
 
 function stubTokenManager() {
   return {
@@ -112,6 +113,18 @@ describe('TokenManager default requester (native https)', () => {
     })
     await expect(manager.getAccessToken()).rejects.toBeInstanceOf(NetworkError)
   })
+
+  it('rejects a token response body that exceeds the size cap', async () => {
+    nock(BASE).post('/oauth2/token').reply(200, OVERSIZED_BODY)
+
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'r0',
+      maxRefreshAttempts: 1,
+    })
+    await expect(manager.getAccessToken()).rejects.toBeInstanceOf(NetworkError)
+  })
 })
 
 describe('ResideoApiClient default transport (native https)', () => {
@@ -157,6 +170,20 @@ describe('ResideoApiClient default transport (native https)', () => {
       .get('/v2/locations')
       .query({ apikey: 'my-key' })
       .replyWithError({ code: 'ECONNRESET', message: 'reset' })
+
+    const client = new ResideoApiClient({
+      tokenManager: stubTokenManager(),
+      apikey: 'my-key',
+      maxRetryAttempts: 1,
+    })
+    await expect(client.getLocations()).rejects.toBeInstanceOf(NetworkError)
+  })
+
+  it('rejects a response body that exceeds the size cap', async () => {
+    nock(BASE)
+      .get('/v2/locations')
+      .query({ apikey: 'my-key' })
+      .reply(200, OVERSIZED_BODY)
 
     const client = new ResideoApiClient({
       tokenManager: stubTokenManager(),

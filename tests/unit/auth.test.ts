@@ -6,7 +6,7 @@
  */
 
 import { TokenManager, buildAuthorizeUrl, exchangeAuthorizationCode, extractAuthorizationCode } from '../../src/api/auth'
-import { NetworkError, RefreshTokenInvalidError, ValidationError } from '../../src/errors'
+import { ApiParseError, NetworkError, RefreshTokenInvalidError, ValidationError } from '../../src/errors'
 import { AUTHORIZE_URL } from '../../src/settings'
 import type { TokenResponse } from '../../src/types'
 
@@ -107,6 +107,21 @@ describe('TokenManager', () => {
     await manager.getAccessToken()
     expect(onRefreshToken).toHaveBeenCalledWith('refresh-rotated')
     expect(manager.getRefreshToken()).toBe('refresh-rotated')
+  })
+
+  it('rejects a token response that omits access_token', async () => {
+    const requestToken = jest.fn().mockResolvedValue(
+      makeTokenResponse({ access_token: undefined as unknown as string }),
+    )
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'refresh-0',
+      maxRefreshAttempts: 1,
+      requestToken,
+    })
+
+    await expect(manager.getAccessToken()).rejects.toBeInstanceOf(ApiParseError)
   })
 
   it('forceRefresh bypasses the cache', async () => {

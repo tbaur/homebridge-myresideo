@@ -5,7 +5,7 @@
  * See LICENSE file for full license text
  */
 
-import { validateConfig } from '../../src/utils'
+import { sanitizeFreezeThreshold, validateConfig } from '../../src/utils'
 import type { ResideoPlatformConfig } from '../../src/types'
 
 function baseConfig(overrides: Partial<ResideoPlatformConfig> = {}): ResideoPlatformConfig {
@@ -64,6 +64,28 @@ describe('validateConfig', () => {
     expect(result.warnings.some(w => w.includes('freezeThresholdCelsius'))).toBe(true)
   })
 
+  it('warns when a per-device freezeThresholdCelsius is out of range', () => {
+    const result = validateConfig(baseConfig({
+      options: { devices: [{ deviceID: 'dev-1', freezeThresholdCelsius: 999 }] },
+    }))
+    expect(result.errors).toHaveLength(0)
+    expect(result.warnings.some(w => w.includes('devices[0].freezeThresholdCelsius'))).toBe(true)
+  })
+
+  it('warns when a per-device freezeThresholdCelsius is not a number', () => {
+    const result = validateConfig(baseConfig({
+      options: { devices: [{ deviceID: 'dev-1', freezeThresholdCelsius: 'cold' as unknown as number }] },
+    }))
+    expect(result.warnings.some(w => w.includes('devices[0].freezeThresholdCelsius'))).toBe(true)
+  })
+
+  it('accepts an in-range per-device freezeThresholdCelsius', () => {
+    const result = validateConfig(baseConfig({
+      options: { devices: [{ deviceID: 'dev-1', freezeThresholdCelsius: 2 }] },
+    }))
+    expect(result.warnings.some(w => w.includes('freezeThresholdCelsius'))).toBe(false)
+  })
+
   it('warns when devices is not an array', () => {
     const result = validateConfig(baseConfig({
       options: { devices: {} as unknown as [] },
@@ -97,5 +119,24 @@ describe('validateConfig', () => {
       },
     }))
     expect(result.warnings.some(w => w.includes('deviceID'))).toBe(false)
+  })
+})
+
+describe('sanitizeFreezeThreshold', () => {
+  it('returns an in-range value unchanged', () => {
+    expect(sanitizeFreezeThreshold(4)).toBe(4)
+    expect(sanitizeFreezeThreshold(-40)).toBe(-40)
+    expect(sanitizeFreezeThreshold(40)).toBe(40)
+  })
+
+  it('drops out-of-range values', () => {
+    expect(sanitizeFreezeThreshold(999)).toBeUndefined()
+    expect(sanitizeFreezeThreshold(-100)).toBeUndefined()
+  })
+
+  it('drops non-numeric and NaN values', () => {
+    expect(sanitizeFreezeThreshold(undefined)).toBeUndefined()
+    expect(sanitizeFreezeThreshold('cold' as unknown as number)).toBeUndefined()
+    expect(sanitizeFreezeThreshold(NaN)).toBeUndefined()
   })
 })

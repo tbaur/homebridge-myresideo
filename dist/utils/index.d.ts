@@ -9,6 +9,6 @@
 export { isLeakDetected, isLowBattery, resolveFreezeThreshold, isFreezing, clampBatteryLevel, isWaterLeakDetector, isDeviceActive, hasActiveAlarms, activeAlarmTypes, } from './mappers';
 export { backoffMs, delay } from './backoff';
 export { sanitizeString, sanitizeError, maskToken, } from './sanitizers';
-export { validateConfig } from './validators';
+export { validateConfig, sanitizeFreezeThreshold } from './validators';
 export type { ConfigValidationResult } from './validators';
 //# sourceMappingURL=index.d.ts.map
