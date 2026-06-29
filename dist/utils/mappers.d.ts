@@ -33,6 +33,19 @@ export declare function clampBatteryLevel(batteryRemaining: number | undefined):
 /** Identify whether an API device record is a water leak detector. */
 export declare function isWaterLeakDetector(device: Pick<WaterLeakDetector, 'deviceClass'>): boolean;
 /**
+ * True when the device reports at least one active alarm (e.g. HighTemperature,
+ * HighHumidity, DeviceOffline). The array is empty on healthy devices. Guarded
+ * with `Array.isArray` so a malformed/absent payload is treated as "no alarm"
+ * rather than throwing.
+ */
+export declare function hasActiveAlarms(device: Pick<WaterLeakDetector, 'currentAlarms'>): boolean;
+/**
+ * The distinct, non-empty alarm `type` strings currently active on a device, in
+ * first-seen order. Useful for human-readable diagnostics; returns an empty
+ * array when there are no alarms or none carry a usable `type`.
+ */
+export declare function activeAlarmTypes(device: Pick<WaterLeakDetector, 'currentAlarms'>): string[];
+/**
  * True when the device should be reported as active in HomeKit. Treats an
  * explicit offline/not-alive/not-checked-in signal as inactive; missing fields
  * are optimistically treated as active (the API omits them for healthy devices).

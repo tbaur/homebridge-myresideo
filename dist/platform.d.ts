@@ -10,7 +10,7 @@
 import type { API, Characteristic as CharacteristicClass, DynamicPlatformPlugin, Logging, PlatformAccessory, Service as ServiceClass } from 'homebridge';
 import type { ResideoPlatformConfig } from './types';
 export default class ResideoPlatform implements DynamicPlatformPlugin {
-    private readonly log;
+    readonly log: Logging;
     private readonly api;
     readonly Service: typeof ServiceClass;
     readonly Characteristic: typeof CharacteristicClass;

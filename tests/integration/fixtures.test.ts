@@ -17,7 +17,9 @@ import { API_BASE_URL } from '../../src/settings'
 import type { TokenManager as TokenManagerType } from '../../src/api/auth'
 import type { WaterLeakDetector } from '../../src/types'
 import {
+  activeAlarmTypes,
   clampBatteryLevel,
+  hasActiveAlarms,
   isDeviceActive,
   isFreezing,
   isLeakDetected,
@@ -62,8 +64,8 @@ describe('locations fixture → client → mappers', () => {
 
     const allDevices = (locations[0].devices ?? []) as WaterLeakDetector[]
     const leakDetectors = allDevices.filter(isWaterLeakDetector)
-    expect(allDevices).toHaveLength(6)
-    expect(leakDetectors).toHaveLength(5) // the Thermostat is excluded
+    expect(allDevices).toHaveLength(7)
+    expect(leakDetectors).toHaveLength(6) // the Thermostat is excluded
   })
 
   it('maps each device to the expected HomeKit-facing state', async () => {
@@ -90,11 +92,24 @@ describe('locations fixture → client → mappers', () => {
     const threshold = resolveFreezeThreshold(offlineCold)
     expect(threshold).toBe(4) // device's temp.low.limit
     expect(isFreezing(offlineCold.currentSensorReadings?.temperature, threshold)).toBe(true)
+    // An offline device reports the matching alarm.
+    expect(hasActiveAlarms(offlineCold)).toBe(true)
+    expect(activeAlarmTypes(offlineCold)).toEqual(['DeviceOffline'])
 
     const noReadings = findDevice(devices, 'No Readings Detector')
     expect(noReadings.currentSensorReadings).toBeUndefined()
     expect(clampBatteryLevel(noReadings.batteryRemaining)).toBeUndefined()
     expect(isFreezing(noReadings.currentSensorReadings?.temperature, 4)).toBe(false)
+
+    // An online device can still report a condition alarm; duplicate types collapse.
+    const highHumidity = findDevice(devices, 'High Humidity Detector')
+    expect(isDeviceActive(highHumidity)).toBe(true)
+    expect(hasActiveAlarms(highHumidity)).toBe(true)
+    expect(activeAlarmTypes(highHumidity)).toEqual(['HighHumidity'])
+
+    // Healthy devices report no alarms.
+    expect(hasActiveAlarms(healthy)).toBe(false)
+    expect(activeAlarmTypes(healthy)).toEqual([])
   })
 })
 

@@ -6,7 +6,9 @@
  */
 
 import {
+  activeAlarmTypes,
   clampBatteryLevel,
+  hasActiveAlarms,
   isDeviceActive,
   isFreezing,
   isLeakDetected,
@@ -99,5 +101,36 @@ describe('isDeviceActive', () => {
     expect(isDeviceActive({ isDeviceOffline: true })).toBe(false)
     expect(isDeviceActive({ isAlive: false })).toBe(false)
     expect(isDeviceActive({ hasDeviceCheckedIn: false })).toBe(false)
+  })
+})
+
+describe('hasActiveAlarms', () => {
+  it('is true only for a non-empty alarm array', () => {
+    expect(hasActiveAlarms({ currentAlarms: [{ type: 'HighHumidity' }] })).toBe(true)
+    expect(hasActiveAlarms({ currentAlarms: [] })).toBe(false)
+  })
+
+  it('is false (fail-safe) when the field is missing or malformed', () => {
+    expect(hasActiveAlarms({})).toBe(false)
+    expect(hasActiveAlarms({ currentAlarms: undefined })).toBe(false)
+    expect(hasActiveAlarms({ currentAlarms: 'oops' as unknown as [] })).toBe(false)
+  })
+})
+
+describe('activeAlarmTypes', () => {
+  it('returns distinct, in-order, non-empty type strings', () => {
+    expect(activeAlarmTypes({
+      currentAlarms: [
+        { type: 'HighTemperature', created: '2026-01-01T00:00:00' },
+        { type: 'HighHumidity' },
+        { type: 'HighTemperature' },
+      ],
+    })).toEqual(['HighTemperature', 'HighHumidity'])
+  })
+
+  it('ignores entries without a usable type and tolerates malformed input', () => {
+    expect(activeAlarmTypes({ currentAlarms: [{ created: '2026-01-01T00:00:00' }, { type: '' }] })).toEqual([])
+    expect(activeAlarmTypes({})).toEqual([])
+    expect(activeAlarmTypes({ currentAlarms: 'oops' as unknown as [] })).toEqual([])
   })
 })

@@ -53,7 +53,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   private stopped = false
 
   constructor(
-    private readonly log: Logging,
+    public readonly log: Logging,
     config: ResideoPlatformConfig,
     private readonly api: API,
   ) {

@@ -29,6 +29,8 @@ class LeakSensorAccessory {
     freezeService;
     options;
     defaultFreezeThreshold;
+    /** Last-logged alarm summary, so an unchanged alarm set isn't re-logged each poll. */
+    lastAlarmSignature;
     constructor(platform, accessory, options, defaultFreezeThreshold) {
         this.platform = platform;
         this.accessory = accessory;
@@ -73,10 +75,20 @@ class LeakSensorAccessory {
     updateStatus(device) {
         this.accessory.context.device = device;
         const { Characteristic } = this.platform;
+        // An unreachable device's readings are stale, and an active alarm is a
+        // condition the user should see; both are surfaced as a HomeKit fault.
+        const offline = !(0, utils_1.isDeviceActive)(device);
+        const alarmActive = (0, utils_1.hasActiveAlarms)(device);
+        this.logActiveAlarms(device, alarmActive);
         this.leakService.updateCharacteristic(Characteristic.LeakDetected, (0, utils_1.isLeakDetected)(device)
             ? Characteristic.LeakDetected.LEAK_DETECTED
             : Characteristic.LeakDetected.LEAK_NOT_DETECTED);
-        this.leakService.updateCharacteristic(Characteristic.StatusActive, (0, utils_1.isDeviceActive)(device));
+        this.leakService.updateCharacteristic(Characteristic.StatusActive, !offline);
+        // The Leak Sensor is the primary service, so it carries the device-level
+        // fault (offline or any active alarm) as a single "needs attention" signal.
+        this.leakService.updateCharacteristic(Characteristic.StatusFault, offline || alarmActive
+            ? Characteristic.StatusFault.GENERAL_FAULT
+            : Characteristic.StatusFault.NO_FAULT);
         // Only assert a battery level when the API actually reports one; defaulting
         // a missing reading to "100% / normal" would mislead users during outages.
         const battery = (0, utils_1.clampBatteryLevel)(device.batteryRemaining);
@@ -88,11 +100,11 @@ class LeakSensorAccessory {
         }
         const temperature = device.currentSensorReadings?.temperature;
         if (this.temperatureService) {
-            this.applyReading(this.temperatureService, Characteristic.CurrentTemperature, temperature);
+            this.applyReading(this.temperatureService, Characteristic.CurrentTemperature, temperature, offline);
         }
         const humidity = device.currentSensorReadings?.humidity;
         if (this.humidityService) {
-            this.applyReading(this.humidityService, Characteristic.CurrentRelativeHumidity, humidity);
+            this.applyReading(this.humidityService, Characteristic.CurrentRelativeHumidity, humidity, offline);
         }
         if (this.freezeService) {
             const threshold = (0, utils_1.resolveFreezeThreshold)(device, this.options.freezeThresholdCelsius ?? this.defaultFreezeThreshold);
@@ -100,22 +112,47 @@ class LeakSensorAccessory {
             this.freezeService.updateCharacteristic(Characteristic.ContactSensorState, freezing
                 ? Characteristic.ContactSensorState.CONTACT_NOT_DETECTED
                 : Characteristic.ContactSensorState.CONTACT_DETECTED);
+            // The derived freeze state is only as trustworthy as the temperature it's
+            // computed from, so fault it when the reading is missing or stale.
+            this.freezeService.updateCharacteristic(Characteristic.StatusFault, typeof temperature !== 'number' || offline
+                ? Characteristic.StatusFault.GENERAL_FAULT
+                : Characteristic.StatusFault.NO_FAULT);
         }
     }
     /**
-     * Update a sensor reading. When the reading is present, push the value and
-     * clear any fault; when it is missing, flag the service with a general fault
-     * instead of silently retaining a stale value.
+     * Emit a one-time diagnostic when the active-alarm set changes, so users can
+     * see *which* condition (e.g. `HighHumidity`) drove the fault without re-logging
+     * the same alarms on every poll. Alarm type strings carry no account data.
      */
-    applyReading(service, characteristic, value) {
+    logActiveAlarms(device, alarmActive) {
+        if (!alarmActive) {
+            this.lastAlarmSignature = undefined;
+            return;
+        }
+        const types = (0, utils_1.activeAlarmTypes)(device);
+        const signature = types.join(',');
+        if (signature === this.lastAlarmSignature) {
+            return;
+        }
+        this.lastAlarmSignature = signature;
+        const summary = types.length > 0 ? types.join(', ') : 'unspecified';
+        this.platform.log.warn(`${this.displayName}: active alarm(s) reported: ${summary}`);
+    }
+    /**
+     * Update a sensor reading. Pushes the value whenever one is present (so the
+     * last-known reading is still shown), and raises a general fault when the
+     * reading is missing or the device is offline (and the value is therefore
+     * stale) instead of presenting unreliable data as current.
+     */
+    applyReading(service, characteristic, value, deviceOffline) {
         const { Characteristic } = this.platform;
-        if (typeof value === 'number') {
+        const hasReading = typeof value === 'number';
+        if (hasReading) {
             service.updateCharacteristic(characteristic, value);
-            service.updateCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
         }
-        else {
-            service.updateCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
-        }
+        service.updateCharacteristic(Characteristic.StatusFault, !hasReading || deviceOffline
+            ? Characteristic.StatusFault.GENERAL_FAULT
+            : Characteristic.StatusFault.NO_FAULT);
     }
 }
 exports.LeakSensorAccessory = LeakSensorAccessory;

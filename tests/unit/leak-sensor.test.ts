@@ -103,16 +103,21 @@ function baseDevice(overrides: Partial<WaterLeakDetector> = {}): WaterLeakDetect
   }
 }
 
+function makeLog() {
+  return { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }
+}
+
 function build(device: WaterLeakDetector, options: LeakDetectorOptions = { deviceID: 'dev-1' }, threshold?: number) {
   const accessory = makeAccessory(device)
-  const platform = { Service, Characteristic } as unknown as ResideoPlatform
+  const log = makeLog()
+  const platform = { Service, Characteristic, log } as unknown as ResideoPlatform
   const handler = new LeakSensorAccessory(
     platform,
     accessory as unknown as PlatformAccessory,
     options,
     threshold,
   )
-  return { handler, accessory }
+  return { handler, accessory, log }
 }
 
 describe('LeakSensorAccessory', () => {
@@ -122,10 +127,46 @@ describe('LeakSensorAccessory', () => {
     expect(latestValue(leak, Characteristic.LeakDetected)).toBe(Characteristic.LeakDetected.LEAK_DETECTED)
   })
 
-  it('reports inactive when the device is offline', () => {
+  it('reports inactive and faults the leak service when the device is offline', () => {
     const { accessory } = build(baseDevice({ isDeviceOffline: true }))
     const leak = accessory.services.get(Service.LeakSensor)
     expect(latestValue(leak, Characteristic.StatusActive)).toBe(false)
+    expect(latestValue(leak, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
+  })
+
+  it('faults the leak service on an active alarm while still reporting active', () => {
+    const { accessory, log } = build(baseDevice({
+      currentAlarms: [{ type: 'HighHumidity', created: '2026-01-01T00:00:00' }],
+    }))
+    const leak = accessory.services.get(Service.LeakSensor)
+    expect(latestValue(leak, Characteristic.StatusActive)).toBe(true)
+    expect(latestValue(leak, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('HighHumidity'))
+  })
+
+  it('clears the leak-service fault and logs once across unchanged polls', () => {
+    const { accessory, handler, log } = build(baseDevice())
+    const leak = accessory.services.get(Service.LeakSensor)
+    expect(latestValue(leak, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.NO_FAULT)
+
+    const alarmed = baseDevice({ currentAlarms: [{ type: 'HighTemperature' }] })
+    handler.updateStatus(alarmed)
+    handler.updateStatus(alarmed)
+    expect(log.warn).toHaveBeenCalledTimes(1) // unchanged alarm set is not re-logged
+
+    handler.updateStatus(baseDevice())
+    expect(latestValue(leak, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.NO_FAULT)
+  })
+
+  it('faults the temperature service when offline even though a (stale) reading exists', () => {
+    const device = baseDevice({
+      isDeviceOffline: true,
+      currentSensorReadings: { time: 't', temperature: 18, humidity: 60 },
+    })
+    const { accessory } = build(device)
+    const temp = accessory.services.get(Service.TemperatureSensor)
+    expect(latestValue(temp, Characteristic.CurrentTemperature)).toBe(18) // last-known value still shown
+    expect(latestValue(temp, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
   })
 
   it('updates battery level and status when a reading is present', () => {
@@ -172,5 +213,12 @@ describe('LeakSensorAccessory', () => {
     const contact = accessory.services.get(Service.ContactSensor)
     expect(latestValue(contact, Characteristic.ContactSensorState))
       .toBe(Characteristic.ContactSensorState.CONTACT_NOT_DETECTED)
+    expect(latestValue(contact, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.NO_FAULT)
+  })
+
+  it('faults the freeze contact sensor when the temperature reading is missing', () => {
+    const { accessory } = build(baseDevice(), { deviceID: 'dev-1', enableFreezeSensor: true }, 4)
+    const contact = accessory.services.get(Service.ContactSensor)
+    expect(latestValue(contact, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
   })
 })

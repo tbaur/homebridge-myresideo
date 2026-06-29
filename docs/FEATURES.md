@@ -9,6 +9,7 @@
 - ✅ Water leak detection exposed as a HomeKit Leak Sensor
 - ✅ Temperature and humidity readings exposed as HomeKit sensors (optional, per device)
 - ✅ Fault signaling on missing readings instead of showing stale values
+- ✅ Connectivity & alarm faults: an offline device or any active `currentAlarms` entry (e.g. `HighHumidity`, `DeviceOffline`) is surfaced as a HomeKit `StatusFault`, and the alarm type is logged when it changes
 - ✅ Freeze detection derived from temperature (optional Contact Sensor, per device)
 - ✅ Battery level and low-battery status (no misleading default when unreported)
 - ✅ Configurable polling (120s default, 30s minimum) with bounded concurrency and an in-flight guard

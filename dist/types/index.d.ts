@@ -69,11 +69,12 @@ export interface TokenResponse {
     token_type?: string;
 }
 /**
- * A current alarm entry on a device (e.g. high temperature/humidity, offline).
- *
- * NOTE: `currentAlarms` was empty on every observed (healthy) device, so the
- * entry shape is not yet verified against live data. Consumers must treat these
- * fields defensively. This is hardened in the alarm-to-StatusFault work.
+ * A current alarm entry on a device. The shape (`type` + `created`) is taken
+ * from the published Honeywell Home Water Leak Detector documentation; observed
+ * `type` values include `HighTemperature`, `HighHumidity`, and `DeviceOffline`.
+ * Healthy devices report an empty `currentAlarms` array. Both fields are kept
+ * optional (and the index signature retained) so a malformed entry can never
+ * throw — `hasActiveAlarms`/`activeAlarmTypes` consume them defensively.
  */
 export interface DeviceAlarm {
     type?: string;

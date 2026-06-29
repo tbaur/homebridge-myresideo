@@ -8,7 +8,7 @@
  * @fileoverview Utility barrel exports.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.validateConfig = exports.maskToken = exports.sanitizeError = exports.sanitizeString = exports.delay = exports.backoffMs = exports.isDeviceActive = exports.isWaterLeakDetector = exports.clampBatteryLevel = exports.isFreezing = exports.resolveFreezeThreshold = exports.isLowBattery = exports.isLeakDetected = void 0;
+exports.validateConfig = exports.maskToken = exports.sanitizeError = exports.sanitizeString = exports.delay = exports.backoffMs = exports.activeAlarmTypes = exports.hasActiveAlarms = exports.isDeviceActive = exports.isWaterLeakDetector = exports.clampBatteryLevel = exports.isFreezing = exports.resolveFreezeThreshold = exports.isLowBattery = exports.isLeakDetected = void 0;
 var mappers_1 = require("./mappers");
 Object.defineProperty(exports, "isLeakDetected", { enumerable: true, get: function () { return mappers_1.isLeakDetected; } });
 Object.defineProperty(exports, "isLowBattery", { enumerable: true, get: function () { return mappers_1.isLowBattery; } });
@@ -17,6 +17,8 @@ Object.defineProperty(exports, "isFreezing", { enumerable: true, get: function (
 Object.defineProperty(exports, "clampBatteryLevel", { enumerable: true, get: function () { return mappers_1.clampBatteryLevel; } });
 Object.defineProperty(exports, "isWaterLeakDetector", { enumerable: true, get: function () { return mappers_1.isWaterLeakDetector; } });
 Object.defineProperty(exports, "isDeviceActive", { enumerable: true, get: function () { return mappers_1.isDeviceActive; } });
+Object.defineProperty(exports, "hasActiveAlarms", { enumerable: true, get: function () { return mappers_1.hasActiveAlarms; } });
+Object.defineProperty(exports, "activeAlarmTypes", { enumerable: true, get: function () { return mappers_1.activeAlarmTypes; } });
 var backoff_1 = require("./backoff");
 Object.defineProperty(exports, "backoffMs", { enumerable: true, get: function () { return backoff_1.backoffMs; } });
 Object.defineProperty(exports, "delay", { enumerable: true, get: function () { return backoff_1.delay; } });

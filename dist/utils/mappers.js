@@ -15,6 +15,8 @@ exports.resolveFreezeThreshold = resolveFreezeThreshold;
 exports.isFreezing = isFreezing;
 exports.clampBatteryLevel = clampBatteryLevel;
 exports.isWaterLeakDetector = isWaterLeakDetector;
+exports.hasActiveAlarms = hasActiveAlarms;
+exports.activeAlarmTypes = activeAlarmTypes;
 exports.isDeviceActive = isDeviceActive;
 const settings_1 = require("../settings");
 /** True when liquid water is currently detected. */
@@ -68,6 +70,33 @@ function clampBatteryLevel(batteryRemaining) {
 /** Identify whether an API device record is a water leak detector. */
 function isWaterLeakDetector(device) {
     return device.deviceClass === 'LeakDetector';
+}
+/**
+ * True when the device reports at least one active alarm (e.g. HighTemperature,
+ * HighHumidity, DeviceOffline). The array is empty on healthy devices. Guarded
+ * with `Array.isArray` so a malformed/absent payload is treated as "no alarm"
+ * rather than throwing.
+ */
+function hasActiveAlarms(device) {
+    return Array.isArray(device.currentAlarms) && device.currentAlarms.length > 0;
+}
+/**
+ * The distinct, non-empty alarm `type` strings currently active on a device, in
+ * first-seen order. Useful for human-readable diagnostics; returns an empty
+ * array when there are no alarms or none carry a usable `type`.
+ */
+function activeAlarmTypes(device) {
+    if (!Array.isArray(device.currentAlarms)) {
+        return [];
+    }
+    const types = [];
+    for (const alarm of device.currentAlarms) {
+        const type = alarm?.type;
+        if (typeof type === 'string' && type.length > 0 && !types.includes(type)) {
+            types.push(type);
+        }
+    }
+    return types;
 }
 /**
  * True when the device should be reported as active in HomeKit. Treats an

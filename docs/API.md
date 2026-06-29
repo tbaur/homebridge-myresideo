@@ -91,7 +91,7 @@ Authorization: Bearer {accessToken}
 | `batteryRemaining` | integer | Battery percent. |
 | `hasDeviceCheckedIn` | boolean | Recently checked in. |
 | `isDeviceOffline` / `isAlive` | boolean | Connectivity. `StatusActive` is the AND of `isAlive !== false`, `isDeviceOffline !== true`, and `hasDeviceCheckedIn !== false`. |
-| `currentAlarms[]` | array | Active alarms. Per-entry shape is **unverified** (empty on all observed healthy devices); example values like `HighTemperature`/`HighHumidity`/`DeviceOffline` are illustrative. |
+| `currentAlarms[]` | array | Active alarms; empty on healthy devices. Each entry is `{ "type": string, "created": ISO-timestamp }` per the published docs, with `type` values such as `HighTemperature`, `HighHumidity`, and `DeviceOffline`. The plugin surfaces any non-empty array (and an offline device) as a HomeKit `StatusFault`. |
 | `deviceSettings.temp.low.limit` | number | Configured low-temp alert limit (Celsius) — used as the default freeze threshold. |
 
 ### Freeze detection

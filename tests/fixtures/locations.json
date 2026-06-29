@@ -68,7 +68,7 @@
         "firmwareVer": "0.0.0",
         "waterPresent": false,
         "currentSensorReadings": { "time": "2026-01-01T00:00:00", "temperature": 2.0, "humidity": 40 },
-        "currentAlarms": [],
+        "currentAlarms": [{ "type": "DeviceOffline", "created": "2026-01-01T00:00:00" }],
         "batteryRemaining": 65,
         "isRegistered": true,
         "hasDeviceCheckedIn": false,
@@ -79,6 +79,29 @@
         "userDefinedDeviceName": "Offline Cold Detector",
         "isAlive": false,
         "deviceSettings": { "temp": { "low": { "limit": 4 } } },
+        "deviceVariant": "WLD3"
+      },
+      {
+        "firmwareVer": "0.0.0",
+        "waterPresent": false,
+        "currentSensorReadings": { "time": "2026-01-01T00:00:00", "temperature": 22.0, "humidity": 85 },
+        "currentAlarms": [
+          { "type": "HighHumidity", "created": "2026-01-01T00:00:00" },
+          { "type": "HighHumidity", "created": "2026-01-01T00:00:00" }
+        ],
+        "batteryRemaining": 70,
+        "isRegistered": true,
+        "hasDeviceCheckedIn": true,
+        "isDeviceOffline": false,
+        "deviceClass": "LeakDetector",
+        "deviceType": "Water Leak Detector",
+        "deviceID": "00000000-0000-4000-8000-000000000006",
+        "userDefinedDeviceName": "High Humidity Detector",
+        "isAlive": true,
+        "deviceSettings": {
+          "temp": { "low": { "limit": 4 } },
+          "humidity": { "high": { "limit": 80 } }
+        },
         "deviceVariant": "WLD3"
       },
       {

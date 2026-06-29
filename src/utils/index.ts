@@ -15,6 +15,8 @@ export {
   clampBatteryLevel,
   isWaterLeakDetector,
   isDeviceActive,
+  hasActiveAlarms,
+  activeAlarmTypes,
 } from './mappers'
 
 export { backoffMs, delay } from './backoff'

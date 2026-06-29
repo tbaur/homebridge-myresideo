@@ -16,6 +16,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Leak Detection** — HomeKit Leak Sensor that reflects the water-present state on each polling cycle (default every 120s; see [polling](#configuration-options))
 - **Temperature & Humidity** — Exposed as standard HomeKit sensors (each can be hidden); a missing reading is flagged as a fault rather than shown as a stale value
 - **Battery** — Battery level plus low-battery status
+- **Connectivity & Alarms** — An offline detector or any active device alarm (e.g. high humidity) is surfaced as a HomeKit fault on the Leak Sensor, and the alarm type is logged when it changes
 - **Freeze Sensor** *(optional)* — A HomeKit contact sensor that trips when the temperature drops to or below a configurable threshold
 
 ### Reliability
