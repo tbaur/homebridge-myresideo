@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.1.11](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.10...v0.1.11) (2026-06-29)
+
+
+### Bug Fixes
+
+* stop config-ui-x fabricating an invalid per-device override ([#29](https://github.com/tbaur/homebridge-myresideo/issues/29)) ([6363676](https://github.com/tbaur/homebridge-myresideo/commit/63636760e57d6f7360af3ef646368970532d1c24))
+
 ## [0.1.10](https://github.com/tbaur/homebridge-myresideo/compare/v0.1.9...v0.1.10) (2026-06-29)
 
 
