@@ -330,6 +330,9 @@ function defaultRequestToken(formBody: string, basicAuth: string): Promise<Token
           const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
           total += buf.length
           if (total > MAX_RESPONSE_BODY_BYTES) {
+            // Tear down the response stream as well as the request so the
+            // underlying socket is released immediately instead of lingering.
+            res.destroy()
             req.destroy()
             reject(new NetworkError(`Token response body exceeded the ${MAX_RESPONSE_BODY_BYTES}-byte limit`))
             return
