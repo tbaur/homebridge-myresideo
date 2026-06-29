@@ -30,12 +30,6 @@ const asTrimmedString = value => (typeof value === 'string' ? value.trim() : '')
 class ResideoUiServer extends HomebridgePluginUiServer {
   constructor() {
     super()
-    // Cheap warm-up endpoint: the frontend pings this on load so the first
-    // *real* request (the token exchange) is never the cold-start one.
-    // config-ui-x can drop the response to the very first request sent to a
-    // freshly spawned child, which otherwise left the "Link account" spinner
-    // hanging until a page reload.
-    this.onRequest('/ping', () => ({ ok: true }))
     this.onRequest('/exchange-code', payload => this.handleExchangeCode(payload))
     this.ready()
   }
