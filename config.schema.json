@@ -59,11 +59,11 @@
             "title": "Per-Device Options",
             "items": {
               "type": "object",
-              "required": ["deviceID"],
               "properties": {
                 "deviceID": {
                   "title": "Device ID",
-                  "type": "string"
+                  "type": "string",
+                  "description": "Required for the override to apply. Entries without a Device ID are ignored by the plugin."
                 },
                 "name": {
                   "title": "Display Name Override",
@@ -71,18 +71,15 @@
                 },
                 "hideTemperatureSensor": {
                   "title": "Hide Temperature Sensor",
-                  "type": "boolean",
-                  "default": false
+                  "type": "boolean"
                 },
                 "hideHumiditySensor": {
                   "title": "Hide Humidity Sensor",
-                  "type": "boolean",
-                  "default": false
+                  "type": "boolean"
                 },
                 "enableFreezeSensor": {
                   "title": "Expose Freeze Sensor",
                   "type": "boolean",
-                  "default": false,
                   "description": "Adds a contact sensor that trips when temperature is at or below the freeze threshold."
                 },
                 "freezeThresholdCelsius": {

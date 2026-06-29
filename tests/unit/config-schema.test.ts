@@ -96,8 +96,20 @@ describe('config.schema.json', () => {
     expect(schema.schema.required).toEqual(expect.arrayContaining(['name']))
   })
 
-  it('requires deviceID on each per-device override entry', () => {
+  it('does not require deviceID at the schema level (enforced at startup instead)', () => {
+    // config-ui-x can materialize an empty per-device row; a schema `required`
+    // would flag it as invalid on a fresh install. The plugin validates/ignores
+    // overrides missing a deviceID at startup, so the schema must stay lenient.
     const deviceItems = schema.schema.properties.options?.properties?.devices?.items
-    expect(deviceItems?.required).toEqual(expect.arrayContaining(['deviceID']))
+    expect(deviceItems?.required).toBeUndefined()
+  })
+
+  it('declares no defaults inside per-device items (config-ui-x would fabricate a phantom override)', () => {
+    const deviceItems = schema.schema.properties.options?.properties?.devices?.items
+    const itemProps = deviceItems?.properties ?? {}
+    const withDefaults = Object.entries(itemProps)
+      .filter(([, prop]) => 'default' in prop)
+      .map(([key]) => key)
+    expect(withDefaults).toEqual([])
   })
 })

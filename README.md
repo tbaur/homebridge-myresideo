@@ -103,7 +103,7 @@ Per-device overrides (`options.devices[]`), keyed by `deviceID`:
 
 | Option | Required | Description |
 |--------|:--------:|-------------|
-| `deviceID` | ✓ | Honeywell device ID the override applies to |
+| `deviceID` | ✓ | Honeywell device ID the override applies to (entries without it are ignored) |
 | `name` | | Display-name override for the accessory |
 | `hideTemperatureSensor` | | Hide the temperature sensor service |
 | `hideHumiditySensor` | | Hide the humidity sensor service |
