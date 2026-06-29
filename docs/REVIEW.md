@@ -52,7 +52,7 @@ This document summarizes the plugin's security, reliability, maintainability, an
 | Area | Status | Notes |
 |------|--------|-------|
 | **Logging** | ✅ | Uses the Homebridge logger; all error logging routed through `sanitizeError` |
-| **Config Schema ↔ Validators** | ✅ | `config.schema.json` and `validateConfig` cover the same fields; `name` is optional in both |
+| **Config Schema ↔ Validators** | ✅ | `validateConfig` enforces every field (including credentials) at startup; the settings form (`config.schema.json`) covers the user-editable options, while credentials are managed by the account-linking UI rather than shown in the form |
 | **Differentiated Errors** | ✅ | Invalid refresh token vs. rejected API credentials are logged distinctly so users know whether to re-link or fix credentials |
 | **Structured Diagnostics** | ⚠️ | No dedicated diagnostics/health-heartbeat subsystem; standard logging covers current needs |
 | **Integration Smoke Tests** | ✅ | `tests/integration/network.test.ts` exercises the native transport with `nock` (no live API) |
@@ -74,7 +74,7 @@ The plugin targets a single device type (the WiFi Water Leak & Freeze Detector) 
 | **Maintainability** | Strong; small, well-tested (incl. platform/accessory), dependency-free core |
 | **Serviceability** | Good; standard logging, no dedicated diagnostics subsystem |
 
-A built-in account-linking UI — completing the OAuth2 flow from the plugin settings, with the `get-tokens` script as a command-line fallback — ships in this version. Remaining planned work (e.g. live-hardware verification) is tracked in [`ROADMAP.md`](ROADMAP.md).
+A built-in account-linking UI — completing the OAuth2 flow from the plugin settings, with the `get-tokens` script as a command-line fallback — ships in this version. The main remaining item, validation against real hardware, is tracked in the [issue tracker](https://github.com/tbaur/homebridge-myresideo/issues).
 
 ### Quality gates
 
