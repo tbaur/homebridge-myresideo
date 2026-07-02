@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.3.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.2.0...v1.3.0) (2026-07-02)
+
+
+### Features
+
+* per-check-in device reporting and leaner health diagnostics ([#44](https://github.com/tbaur/homebridge-myresideo/issues/44)) ([7d04e51](https://github.com/tbaur/homebridge-myresideo/commit/7d04e5120623abe70b35df65bf638510f413622a))
+
 ## [1.2.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.1.0...v1.2.0) (2026-06-29)
 
 
