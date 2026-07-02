@@ -155,6 +155,11 @@ describe('describeDeviceState', () => {
     expect(describeDeviceState(makeDevice(), {})).toBe('online | dry | 21.5°C | 47% RH | battery 92%')
   })
 
+  it('omits the leading reachability segment when includeReachability is false', () => {
+    expect(describeDeviceState(makeDevice(), {}, undefined, { includeReachability: false }))
+      .toBe('dry | 21.5°C | 47% RH | battery 92%')
+  })
+
   it('capitalizes problems: offline, leak, low battery, and active alarms', () => {
     const device = makeDevice({
       isDeviceOffline: true,

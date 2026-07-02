@@ -146,7 +146,9 @@ describe('discovery and polling', () => {
     expect(api.registerPlatformAccessories).toHaveBeenCalledTimes(1)
     expect(LeakSensorAccessory).toHaveBeenCalledTimes(1)
     expect(mockGetDetector).toHaveBeenCalledWith('dev-1', 1)
-    expect(mockUpdateStatus).toHaveBeenCalledWith(leakDevice)
+    // The poll also passes the request latency so the accessory can annotate its
+    // per-check-in report.
+    expect(mockUpdateStatus).toHaveBeenCalledWith(leakDevice, expect.any(Number))
 
     handlers.shutdown()
   })
@@ -526,7 +528,18 @@ describe('diagnostics', () => {
 
     // The 30s diagnostics interval fires before the 120s poll interval.
     await jest.advanceTimersByTimeAsync(30_000)
-    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Health: healthy'))
+    const healthLine = (log.info as jest.Mock).mock.calls
+      .map(args => args[0] as string)
+      .find(line => typeof line === 'string' && line.includes('Health: healthy'))
+    expect(healthLine).toBeDefined()
+    // Request activity is reported once: this plugin is polling-only, so the API
+    // `req`/`err` counts would just restate the poll counts. The line surfaces
+    // retries and keeps only the latency percentiles from the API metrics.
+    expect(healthLine).toContain('poll')
+    expect(healthLine).toContain('retried')
+    expect(healthLine).toContain('latency p50')
+    expect(healthLine).not.toContain('req ')
+    expect(healthLine).not.toContain('api p50')
 
     handlers.shutdown()
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Diagnostics stop'))
@@ -599,10 +612,21 @@ describe('diagnostics', () => {
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Health degraded'))
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('tokenRefreshFailing'))
 
+    // The transition notice is concise (state + reasons only); the heartbeat that
+    // detected the change already carried the full metrics body, so none of it is
+    // duplicated onto the transition line.
+    const degradedLine = (log.warn as jest.Mock).mock.calls
+      .map(args => args[0] as string)
+      .find(line => typeof line === 'string' && line.includes('Health degraded'))
+    expect(degradedLine).toBe('Health degraded: degraded [tokenRefreshFailing]')
+
     // A subsequent successful refresh clears the cooldown and recovers health.
     tokenOpts.current?.onRefreshSuccess?.()
     await jest.advanceTimersByTimeAsync(30_000)
-    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Health recovered'))
+    const recoveredLine = (log.info as jest.Mock).mock.calls
+      .map(args => args[0] as string)
+      .find(line => typeof line === 'string' && line.includes('Health recovered'))
+    expect(recoveredLine).toBe('Health recovered: healthy')
 
     handlers.shutdown()
   })

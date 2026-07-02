@@ -62,6 +62,10 @@ export declare function isDeviceActive(device: Pick<WaterLeakDetector, 'isAlive'
  *
  * Segments are pipe-delimited to match the diagnostics `Health:` line, so the
  * boot summary and the periodic health report read consistently in the log.
+ * Pass `report.includeReachability: false` to drop the leading online/OFFLINE
+ * segment (used by the per-check-in report, where a fresh report implies online).
  */
-export declare function describeDeviceState(device: WaterLeakDetector, options: Pick<LeakDetectorOptions, 'enableFreezeSensor' | 'freezeThresholdCelsius'>, defaultFreezeThreshold?: number): string;
+export declare function describeDeviceState(device: WaterLeakDetector, options: Pick<LeakDetectorOptions, 'enableFreezeSensor' | 'freezeThresholdCelsius'>, defaultFreezeThreshold?: number, report?: {
+    includeReachability?: boolean;
+}): string;
 //# sourceMappingURL=mappers.d.ts.map

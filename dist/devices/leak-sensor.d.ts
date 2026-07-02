@@ -33,6 +33,14 @@ export declare class LeakSensorAccessory {
     /** Last observed state, so transitions are logged once instead of every poll. */
     private prev?;
     /**
+     * The device's `lastCheckin` timestamp at the previous observation. These
+     * detectors upload to the cloud only on their configured check-in period
+     * (`deviceSettings.checkinPeriod`, the app's 1–3×/day update frequency), so a
+     * change here marks a genuine device report-in rather than a routine poll that
+     * returned the same unchanged cloud data.
+     */
+    private lastCheckinAt?;
+    /**
      * True until the first poll completes. The first observation establishes the
      * baseline silently because the platform logs a one-line boot state summary per
      * device; only subsequent *transitions* are logged here.
@@ -46,8 +54,13 @@ export declare class LeakSensorAccessory {
      * cleared `enableFreezeSensor`). A no-op when the service was never present.
      */
     private removeService;
-    /** Push the latest device state into all HomeKit characteristics. */
-    updateStatus(device: WaterLeakDetector): void;
+    /**
+     * Push the latest device state into all HomeKit characteristics. `latencyMs`
+     * is the wall-clock duration of the poll request that produced this payload,
+     * used only to annotate the per-check-in report; it is absent for the initial
+     * constructor observation.
+     */
+    updateStatus(device: WaterLeakDetector, latencyMs?: number): void;
     /**
      * Update the Battery service. Only asserts a level when the API reports one;
      * defaulting a missing reading to "100% / normal" would mislead during outages.
@@ -59,6 +72,19 @@ export declare class LeakSensorAccessory {
      * enabled and a real temperature reading backs it.
      */
     private updateFreezeService;
+    /**
+     * Log a one-line, named readings summary when the device's cloud check-in
+     * timestamp (`lastCheckin`) advances. Because these detectors upload to the
+     * cloud only on their configured check-in period (`deviceSettings.checkinPeriod`,
+     * the Resideo app's 1–3×/day update frequency), most polls return unchanged
+     * cloud data; keying on `lastCheckin` fires this only on a genuine fresh report,
+     * so the log reflects each device update — identified by name, with its current
+     * readings and the poll latency — without the noise of every poll. The first
+     * observation records the baseline silently (the platform's boot summary
+     * already reports startup state). A payload with no `lastCheckin` is treated as
+     * "cannot tell" and stays silent rather than logging on unchanged data.
+     */
+    private logCheckIn;
     /**
      * Emit a one-time diagnostic when the active-alarm set changes, so users can
      * see *which* condition (e.g. `HighHumidity`) drove the fault without re-logging

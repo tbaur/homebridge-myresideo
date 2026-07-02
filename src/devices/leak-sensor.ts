@@ -22,6 +22,7 @@ import type { LeakDetectorOptions, WaterLeakDetector } from '../types'
 import {
   activeAlarmTypes,
   clampBatteryLevel,
+  describeDeviceState,
   hasActiveAlarms,
   isDeviceActive,
   isFreezing,
@@ -58,6 +59,14 @@ export class LeakSensorAccessory {
   private lastAlarmSignature?: string
   /** Last observed state, so transitions are logged once instead of every poll. */
   private prev?: Pick<ObservedState, 'leak' | 'online' | 'lowBattery' | 'freezing'>
+  /**
+   * The device's `lastCheckin` timestamp at the previous observation. These
+   * detectors upload to the cloud only on their configured check-in period
+   * (`deviceSettings.checkinPeriod`, the app's 1–3×/day update frequency), so a
+   * change here marks a genuine device report-in rather than a routine poll that
+   * returned the same unchanged cloud data.
+   */
+  private lastCheckinAt?: string
   /**
    * True until the first poll completes. The first observation establishes the
    * baseline silently because the platform logs a one-line boot state summary per
@@ -139,8 +148,13 @@ export class LeakSensorAccessory {
     }
   }
 
-  /** Push the latest device state into all HomeKit characteristics. */
-  updateStatus(device: WaterLeakDetector): void {
+  /**
+   * Push the latest device state into all HomeKit characteristics. `latencyMs`
+   * is the wall-clock duration of the poll request that produced this payload,
+   * used only to annotate the per-check-in report; it is absent for the initial
+   * constructor observation.
+   */
+  updateStatus(device: WaterLeakDetector, latencyMs?: number): void {
     this.accessory.context.device = device
     const { Characteristic } = this.platform
 
@@ -181,6 +195,7 @@ export class LeakSensorAccessory {
 
     const freeze = this.updateFreezeService(device, temperature, offline)
 
+    this.logCheckIn(device, latencyMs)
     this.logActiveAlarms(device, alarmActive)
     this.logObservedState({
       leak,
@@ -247,6 +262,37 @@ export class LeakSensorAccessory {
         : Characteristic.StatusFault.NO_FAULT,
     )
     return { freezing: typeof temperature === 'number' ? freezing : undefined, threshold }
+  }
+
+  /**
+   * Log a one-line, named readings summary when the device's cloud check-in
+   * timestamp (`lastCheckin`) advances. Because these detectors upload to the
+   * cloud only on their configured check-in period (`deviceSettings.checkinPeriod`,
+   * the Resideo app's 1–3×/day update frequency), most polls return unchanged
+   * cloud data; keying on `lastCheckin` fires this only on a genuine fresh report,
+   * so the log reflects each device update — identified by name, with its current
+   * readings and the poll latency — without the noise of every poll. The first
+   * observation records the baseline silently (the platform's boot summary
+   * already reports startup state). A payload with no `lastCheckin` is treated as
+   * "cannot tell" and stays silent rather than logging on unchanged data.
+   */
+  private logCheckIn(device: WaterLeakDetector, latencyMs?: number): void {
+    const current = device.lastCheckin
+    if (this.firstObservation) {
+      this.lastCheckinAt = current
+      return
+    }
+    if (current === undefined) {
+      return
+    }
+    if (this.lastCheckinAt !== undefined && current !== this.lastCheckinAt) {
+      const summary = describeDeviceState(device, this.options, this.defaultFreezeThreshold, {
+        includeReachability: false,
+      })
+      const latency = typeof latencyMs === 'number' ? ` (Latency: ${latencyMs}ms)` : ''
+      this.platform.log.info(`${this.displayName}: ${summary}${latency}`)
+    }
+    this.lastCheckinAt = current
   }
 
   /**
