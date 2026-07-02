@@ -387,4 +387,28 @@ describe('LeakSensorAccessory check-in reporting', () => {
 
     expect(checkInLines(log)).toHaveLength(2)
   })
+
+  it('prefixes the report with the config name override when set', () => {
+    const { handler, log } = build(at('2026-01-01T00:00:00'), { deviceID: 'dev-1', name: 'Basement Sump' })
+    handler.updateStatus(at('2026-01-01T08:00:00'), 100)
+    expect(checkInLines(log)[0]).toBe('Basement Sump: dry | 20.5°C | 50% RH | battery 90% (Latency: 100ms)')
+  })
+
+  it('still reports the next real check-in after a transient poll with no timestamp', () => {
+    const { handler, log } = build(at('2026-01-01T00:00:00'))
+    // A poll that momentarily omits lastCheckin must not clear the baseline...
+    handler.updateStatus(baseDevice({
+      batteryRemaining: 90,
+      currentSensorReadings: { time: 'x', temperature: 20.5, humidity: 50 },
+    }), 100)
+    // ...so the following genuine check-in still logs exactly once.
+    handler.updateStatus(at('2026-01-01T08:00:00'), 100)
+    expect(checkInLines(log)).toHaveLength(1)
+  })
+
+  it('omits the latency suffix when no latency is supplied', () => {
+    const { handler, log } = build(at('2026-01-01T00:00:00'))
+    handler.updateStatus(at('2026-01-01T08:00:00'))
+    expect(log.info).toHaveBeenCalledWith('Test Detector: dry | 20.5°C | 50% RH | battery 90%')
+  })
 })

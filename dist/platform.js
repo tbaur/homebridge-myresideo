@@ -357,6 +357,9 @@ class ResideoPlatform {
                 if (locationId === undefined || !handler || !this.client) {
                     continue;
                 }
+                // End-to-end poll latency for the per-check-in report. This wraps the
+                // whole call, so it includes any client retries/backoff — it is not the
+                // single successful-attempt latency that feeds the diagnostics p50/p95.
                 const startedAt = Date.now();
                 try {
                     const device = await this.client.getWaterLeakDetector(deviceID, locationId);
@@ -579,10 +582,14 @@ function diagnosticLabel(msg) {
             return msg;
     }
 }
+/** Render the bracketed reason list shown after the health state (empty when healthy). */
+function formatReasons(reasons) {
+    return reasons.length > 0 ? ` [${reasons.join(', ')}]` : '';
+}
 /** Build the concise human-readable summary line for a diagnostics report. */
 function formatDiagnosticLine(report) {
     const { lifecycle, devices, polling, token, api, activity } = report;
-    const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : '';
+    const reasonText = formatReasons(lifecycle.reasons);
     const pollDuration = polling.lastDurationMs === null ? 'n/a' : `${polling.lastDurationMs}ms`;
     const tokenExp = token.expiresInSec === null ? 'n/a' : `${token.expiresInSec}s`;
     // This plugin is polling-only, so each device poll is exactly one API request:
@@ -605,8 +612,7 @@ function formatDiagnosticLine(report) {
  * warn-filtered logs without the redundant tail.
  */
 function formatHealthTransitionLine(report) {
-    const { lifecycle } = report;
-    const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : '';
-    return `${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText}`;
+    const reasonText = formatReasons(report.lifecycle.reasons);
+    return `${diagnosticLabel(report.msg)}: ${report.lifecycle.health}${reasonText}`;
 }
 //# sourceMappingURL=platform.js.map
