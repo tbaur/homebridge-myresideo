@@ -120,12 +120,18 @@ function isDeviceActive(device) {
  *
  * Segments are pipe-delimited to match the diagnostics `Health:` line, so the
  * boot summary and the periodic health report read consistently in the log.
+ * Pass `report.includeReachability: false` to drop the leading online/OFFLINE
+ * segment (used by the per-check-in report, where a fresh report implies online).
  */
-function describeDeviceState(device, options, defaultFreezeThreshold) {
-    const parts = [
-        isDeviceActive(device) ? 'online' : 'OFFLINE',
-        isLeakDetected(device) ? 'LEAK DETECTED' : 'dry',
-    ];
+function describeDeviceState(device, options, defaultFreezeThreshold, report = {}) {
+    const parts = [];
+    // The per-check-in report omits the reachability word: a fresh report already
+    // implies the device is online, and connectivity changes log as their own
+    // transition. The startup summary keeps it for an at-a-glance status.
+    if (report.includeReachability ?? true) {
+        parts.push(isDeviceActive(device) ? 'online' : 'OFFLINE');
+    }
+    parts.push(isLeakDetected(device) ? 'LEAK DETECTED' : 'dry');
     const temperature = device.currentSensorReadings?.temperature;
     if (typeof temperature === 'number' && Number.isFinite(temperature)) {
         const threshold = resolveFreezeThreshold(device, options.freezeThresholdCelsius ?? defaultFreezeThreshold);

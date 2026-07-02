@@ -357,9 +357,10 @@ class ResideoPlatform {
                 if (locationId === undefined || !handler || !this.client) {
                     continue;
                 }
+                const startedAt = Date.now();
                 try {
                     const device = await this.client.getWaterLeakDetector(deviceID, locationId);
-                    handler.updateStatus(device);
+                    handler.updateStatus(device, Date.now() - startedAt);
                     ok++;
                 }
                 catch (err) {
@@ -445,7 +446,7 @@ class ResideoPlatform {
                 this.emitDiagnostic(isDegraded ? 'warn' : 'info', {
                     ...report,
                     msg: isDegraded ? 'health.degraded' : 'health.recovered',
-                });
+                }, { concise: true });
             }
             this.lastDiagnosticsHealth = health;
         }
@@ -497,8 +498,11 @@ class ResideoPlatform {
      * Emit a diagnostics report as a human-readable line, plus a structured JSON
      * line when options.structuredLogs is enabled. The report is already redacted.
      */
-    emitDiagnostic(level, report) {
-        this.log[level](formatDiagnosticLine(report));
+    emitDiagnostic(level, report, options = {}) {
+        // A transition logs a concise state-only human line, since the heartbeat that
+        // detected it already emitted the full metrics body; everything else logs the
+        // full summary line.
+        this.log[level](options.concise ? formatHealthTransitionLine(report) : formatDiagnosticLine(report));
         if (this.config.options?.structuredLogs) {
             // Emit the report as-is: `msg` plus the nested groups (lifecycle, devices,
             // polling, token, api, activity, and the config echo on snapshots). The
@@ -577,14 +581,32 @@ function diagnosticLabel(msg) {
 }
 /** Build the concise human-readable summary line for a diagnostics report. */
 function formatDiagnosticLine(report) {
-    const { lifecycle, devices, polling, token, api } = report;
+    const { lifecycle, devices, polling, token, api, activity } = report;
     const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : '';
     const pollDuration = polling.lastDurationMs === null ? 'n/a' : `${polling.lastDurationMs}ms`;
     const tokenExp = token.expiresInSec === null ? 'n/a' : `${token.expiresInSec}s`;
+    // This plugin is polling-only, so each device poll is exactly one API request:
+    // `api.requests`/`api.errors` would merely restate the poll counts plus the
+    // retried transient failures. The human line therefore reports the poll
+    // outcome once, surfaces the retry count (the only extra signal `err` carried),
+    // and keeps only the latency percentiles from the API metrics. Raw request and
+    // error totals remain in the structured-JSON report for log parsers.
     return (`${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText} | `
         + `detectors ${devices.online}/${devices.total} online (${devices.leak} leak) | `
-        + `poll ${pollDuration} ok ${polling.ok} failed ${polling.failed} | `
-        + `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms (req ${api.requests}, err ${api.errors}) | `
+        + `poll ${pollDuration} ok ${polling.ok} failed ${polling.failed} retried ${activity.retries} | `
+        + `latency p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms | `
         + `token exp ${tokenExp}`);
+}
+/**
+ * Concise health-transition notice: state and reasons only. The heartbeat that
+ * detected the change already emitted the full metrics body on the line above,
+ * so repeating it here would just duplicate that content. Degraded transitions
+ * are logged at warn, so this keeps the actionable reasons visible in
+ * warn-filtered logs without the redundant tail.
+ */
+function formatHealthTransitionLine(report) {
+    const { lifecycle } = report;
+    const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : '';
+    return `${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText}`;
 }
 //# sourceMappingURL=platform.js.map

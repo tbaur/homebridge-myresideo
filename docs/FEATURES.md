@@ -11,6 +11,7 @@
 - ✅ Fault signaling on missing readings instead of showing stale values
 - ✅ Connectivity & alarm faults: an offline device or any active `currentAlarms` entry (e.g. `HighHumidity`, `DeviceOffline`) is surfaced as a HomeKit `StatusFault`, and the alarm type is logged when it changes
 - ✅ State-change logging: each poll logs leak, connectivity, low-battery, freeze, and alarm transitions once when they change (not every cycle), with a full per-device snapshot available at debug level
+- ✅ Per-check-in reporting: when a detector reports in to the cloud (on its configured check-in period — the Resideo app's 1–3×/day update frequency), a one-line summary prefixed with the detector's name logs its current readings and the poll latency, so the log reflects each device update without per-poll noise
 - ✅ Opt-in health diagnostics (`diagnosticsInterval`): a periodic heartbeat reporting API latency (p50/p95), poll success/failure, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup (high API error rate, token-refresh failure, or a fully-failed poll cycle), with boot/shutdown snapshots, healthy↔degraded transition logs, and optional structured-JSON output (`structuredLogs`)
 - ✅ Freeze detection derived from temperature (optional Contact Sensor, per device)
 - ✅ Battery level and low-battery status (no misleading default when unreported)

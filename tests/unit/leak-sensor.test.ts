@@ -331,3 +331,60 @@ describe('LeakSensorAccessory state-transition logging', () => {
     expect(recordStateChange).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('LeakSensorAccessory check-in reporting', () => {
+  const at = (lastCheckin: string): WaterLeakDetector => baseDevice({
+    batteryRemaining: 90,
+    currentSensorReadings: { time: lastCheckin, temperature: 20.5, humidity: 50 },
+    lastCheckin,
+  })
+
+  // The per-check-in line is the only one carrying "(Latency:", so tests key on it.
+  const checkInLines = (log: ReturnType<typeof makeLog>): string[] =>
+    (log.info as jest.Mock).mock.calls
+      .map(args => args[0] as string)
+      .filter(line => typeof line === 'string' && line.includes('(Latency:'))
+
+  it('logs a named readings summary (no reachability word) when the check-in timestamp advances', () => {
+    const { handler, log } = build(at('2026-01-01T00:00:00'))
+    handler.updateStatus(at('2026-01-01T08:00:00'), 362)
+
+    expect(checkInLines(log)).toEqual([
+      'Test Detector: dry | 20.5°C | 50% RH | battery 90% (Latency: 362ms)',
+    ])
+  })
+
+  it('surfaces an abnormal condition (leak) in the check-in line', () => {
+    const { handler, log } = build(at('2026-01-01T00:00:00'))
+    handler.updateStatus({ ...at('2026-01-01T08:00:00'), waterPresent: true }, 100)
+    expect(checkInLines(log)[0]).toContain('LEAK DETECTED')
+  })
+
+  it('does not log a report-in when the check-in timestamp is unchanged', () => {
+    const { handler, log } = build(at('2026-01-01T00:00:00'))
+    handler.updateStatus(at('2026-01-01T00:00:00'), 362)
+    expect(checkInLines(log)).toHaveLength(0)
+  })
+
+  it('stays silent on the baseline observation even with a check-in timestamp', () => {
+    // The constructor's first observation is the silent baseline; the platform's
+    // boot summary already reports startup state.
+    const { log } = build(at('2026-01-01T00:00:00'))
+    expect(checkInLines(log)).toHaveLength(0)
+  })
+
+  it('stays silent when the payload carries no check-in timestamp', () => {
+    const { handler, log } = build(baseDevice({ batteryRemaining: 90 }))
+    handler.updateStatus(baseDevice({ batteryRemaining: 90 }), 362)
+    expect(checkInLines(log)).toHaveLength(0)
+  })
+
+  it('reports each subsequent check-in but not the polls in between', () => {
+    const { handler, log } = build(at('2026-01-01T00:00:00'))
+    handler.updateStatus(at('2026-01-01T08:00:00'), 100) // fresh report
+    handler.updateStatus(at('2026-01-01T08:00:00'), 100) // same data on a later poll
+    handler.updateStatus(at('2026-01-01T16:00:00'), 100) // next fresh report
+
+    expect(checkInLines(log)).toHaveLength(2)
+  })
+})
