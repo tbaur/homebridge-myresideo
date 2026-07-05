@@ -80,7 +80,6 @@
     "homebridge-ui",
     "config.schema.json",
     "LICENSE",
-    "NOTICE",
     "README.md"
   ]
 }

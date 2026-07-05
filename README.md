@@ -145,4 +145,4 @@ The plugin talks to Resideo over TLS only, redacts tokens and the `apikey` from 
 
 Copyright 2026 tbaur
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details and [`NOTICE`](NOTICE) for third-party attribution.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) file for details.
