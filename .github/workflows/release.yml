@@ -80,5 +80,8 @@ jobs:
         env:
           NODE_ENV: test
 
+      - name: Verify npm package contents
+        run: npm publish --dry-run
+
       - name: Publish to npm
         run: npm publish --provenance --access public
