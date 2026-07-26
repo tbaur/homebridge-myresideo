@@ -285,6 +285,39 @@ describe('discovery and polling', () => {
     jest.restoreAllMocks()
   })
 
+  it('retries empty discovery even with no cached accessories until devices return', async () => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    mockGetLocations
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(api.registerPlatformAccessories).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('transient empty cloud response'))
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Retrying device discovery'))
+
+    await jest.advanceTimersByTimeAsync(15_000)
+    expect(mockGetLocations).toHaveBeenCalledTimes(2)
+    expect(api.registerPlatformAccessories).not.toHaveBeenCalled()
+
+    await jest.advanceTimersByTimeAsync(30_000)
+    expect(mockGetLocations).toHaveBeenCalledTimes(3)
+    expect(api.registerPlatformAccessories).toHaveBeenCalledTimes(1)
+
+    handlers.shutdown()
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
   it('logs poll failures at debug with the detector name and does not error', async () => {
     mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
     mockGetDetector.mockRejectedValue(new ApiResponseError(500, 'API request failed: 500'))

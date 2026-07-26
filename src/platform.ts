@@ -236,22 +236,30 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       this.lastCloudDetectorCount = detectors.length
 
       // An empty locations/devices payload during a Resideo outage looks like a
-      // successful discovery of zero detectors. Never treat that as "user removed
-      // every device" — pruning would wipe HomeKit accessories that still belong
-      // on the account. Keep the cache, restore handlers when we can, and retry.
-      const cachedDetectorCount = this.countCachedDetectors()
-      if (detectors.length === 0 && cachedDetectorCount > 0) {
-        this.log.warn(
-          `Discovery returned 0 detectors while ${cachedDetectorCount} cached `
-          + `accessor${cachedDetectorCount === 1 ? 'y' : 'ies'} remain; skipping stale `
-          + 'removal and retrying (empty cloud responses must not wipe HomeKit).',
-        )
-        // Corrupt cache entries without a deviceID are still safe to drop.
-        this.pruneCorruptAccessories()
-        this.restoreHandlersFromCache()
-        if (this.handlers.size > 0) {
-          await this.runPollCycle()
-          this.startPolling()
+      // successful discovery of zero detectors. Never treat that as terminal:
+      // pruning would wipe HomeKit when cache remains, and accepting 0 with an
+      // empty cache (e.g. after a prior wipe) would sit idle until a manual
+      // restart even after the cloud recovers. Keep/restore what we can and retry.
+      if (detectors.length === 0) {
+        const cachedDetectorCount = this.countCachedDetectors()
+        if (cachedDetectorCount > 0) {
+          this.log.warn(
+            `Discovery returned 0 detectors while ${cachedDetectorCount} cached `
+            + `accessor${cachedDetectorCount === 1 ? 'y' : 'ies'} remain; skipping stale `
+            + 'removal and retrying (empty cloud responses must not wipe HomeKit).',
+          )
+          // Corrupt cache entries without a deviceID are still safe to drop.
+          this.pruneCorruptAccessories()
+          this.restoreHandlersFromCache()
+          if (this.handlers.size > 0) {
+            await this.runPollCycle()
+            this.startPolling()
+            this.startDiagnostics()
+          }
+        } else {
+          this.log.warn(
+            'Discovery returned 0 detectors; retrying in case this is a transient empty cloud response.',
+          )
           this.startDiagnostics()
         }
         this.scheduleDiscoveryRetry()
@@ -310,12 +318,23 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     if (this.stopped) {
       return
     }
+    if (this.discoveryTimer) {
+      clearTimeout(this.discoveryTimer)
+    }
     this.discoveryAttempt++
     // Same jittered exponential backoff as API/token retries so recovering
     // instances do not align on identical wait times.
     const wait = backoffMs(this.discoveryAttempt, INITIAL_DISCOVERY_RETRY_MS, MAX_DISCOVERY_RETRY_MS)
-    this.log.warn(`Retrying device discovery in ${Math.round(wait / 1000)}s (attempt ${this.discoveryAttempt})`)
+    const message = `Retrying device discovery in ${Math.round(wait / 1000)}s (attempt ${this.discoveryAttempt})`
+    // Keep the first few retries visible during an outage; after that demote so a
+    // genuinely empty account does not warn forever at the 5-minute cap.
+    if (this.discoveryAttempt <= 3) {
+      this.log.warn(message)
+    } else {
+      this.log.debug(message)
+    }
     this.discoveryTimer = setTimeout(() => {
+      this.discoveryTimer = undefined
       void this.discoverDevices()
     }, wait)
   }
