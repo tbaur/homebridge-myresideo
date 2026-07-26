@@ -69,8 +69,18 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      */
     private scheduleDiscoveryRetry;
     private registerDevice;
+    /** Count cached accessories that look like real detectors (have a deviceID). */
+    private countCachedDetectors;
+    /**
+     * Re-wire handlers from Homebridge cache when discovery returns empty but
+     * accessories still carry a device + locationId from a prior successful pass.
+     */
+    private restoreHandlersFromCache;
+    /** Drop corrupt cache entries that have no deviceID; leave real detectors alone. */
+    private pruneCorruptAccessories;
     /** Unregister cached accessories that are no longer present in the account. */
     private pruneStaleAccessories;
+    private unregisterAccessories;
     private optionsForDevice;
     private startPolling;
     /** Run one poll cycle, skipping if a previous cycle is still in flight. */

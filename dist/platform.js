@@ -170,6 +170,26 @@ class ResideoPlatform {
             }
             this.log.info(`Discovered ${detectors.length} water leak detector(s)`);
             this.lastCloudDetectorCount = detectors.length;
+            // An empty locations/devices payload during a Resideo outage looks like a
+            // successful discovery of zero detectors. Never treat that as "user removed
+            // every device" — pruning would wipe HomeKit accessories that still belong
+            // on the account. Keep the cache, restore handlers when we can, and retry.
+            const cachedDetectorCount = this.countCachedDetectors();
+            if (detectors.length === 0 && cachedDetectorCount > 0) {
+                this.log.warn(`Discovery returned 0 detectors while ${cachedDetectorCount} cached `
+                    + `accessor${cachedDetectorCount === 1 ? 'y' : 'ies'} remain; skipping stale `
+                    + 'removal and retrying (empty cloud responses must not wipe HomeKit).');
+                // Corrupt cache entries without a deviceID are still safe to drop.
+                this.pruneCorruptAccessories();
+                this.restoreHandlersFromCache();
+                if (this.handlers.size > 0) {
+                    await this.runPollCycle();
+                    this.startPolling();
+                    this.startDiagnostics();
+                }
+                this.scheduleDiscoveryRetry();
+                return;
+            }
             for (const { device, locationId } of detectors) {
                 this.registerDevice(device, locationId);
             }
@@ -243,6 +263,9 @@ class ResideoPlatform {
         let accessory = this.accessories.find(a => a.UUID === uuid);
         if (accessory) {
             accessory.context.device = device;
+            // Persist locationId so a later empty-discovery outage can keep polling
+            // from cache instead of waiting for a full locations payload to return.
+            accessory.context.locationId = locationId;
             // Keep the cached accessory's name in step with a changed config/device name.
             accessory.displayName = displayName;
             this.api.updatePlatformAccessories([accessory]);
@@ -250,6 +273,7 @@ class ResideoPlatform {
         else {
             accessory = new this.api.platformAccessory(displayName, uuid);
             accessory.context.device = device;
+            accessory.context.locationId = locationId;
             this.api.registerPlatformAccessories(settings_1.PLUGIN_NAME, settings_1.PLATFORM_NAME, [accessory]);
             this.accessories.push(accessory);
             this.log.info(`Registered new water leak detector: ${displayName}`);
@@ -274,16 +298,49 @@ class ResideoPlatform {
             }
         }
     }
+    /** Count cached accessories that look like real detectors (have a deviceID). */
+    countCachedDetectors() {
+        return this.accessories.filter((accessory) => {
+            const id = accessory.context.device?.deviceID;
+            return id !== undefined && id !== '';
+        }).length;
+    }
+    /**
+     * Re-wire handlers from Homebridge cache when discovery returns empty but
+     * accessories still carry a device + locationId from a prior successful pass.
+     */
+    restoreHandlersFromCache() {
+        for (const accessory of this.accessories) {
+            const device = accessory.context.device;
+            const locationId = accessory.context.locationId;
+            if (!device?.deviceID || typeof locationId !== 'number' || Number.isNaN(locationId)) {
+                continue;
+            }
+            if (this.handlers.has(device.deviceID)) {
+                continue;
+            }
+            this.registerDevice(device, locationId);
+        }
+    }
+    /** Drop corrupt cache entries that have no deviceID; leave real detectors alone. */
+    pruneCorruptAccessories() {
+        this.unregisterAccessories(this.accessories.filter((accessory) => {
+            const id = accessory.context.device?.deviceID;
+            return id === undefined || id === '';
+        }));
+    }
     /** Unregister cached accessories that are no longer present in the account. */
     pruneStaleAccessories(currentDeviceIds) {
-        const stale = this.accessories.filter((accessory) => {
+        this.unregisterAccessories(this.accessories.filter((accessory) => {
             const id = accessory.context.device?.deviceID;
             // Missing/empty deviceID is corrupt cache — prune it rather than keep it forever.
             if (id === undefined || id === '') {
                 return true;
             }
             return !currentDeviceIds.has(id);
-        });
+        }));
+    }
+    unregisterAccessories(stale) {
         if (stale.length === 0) {
             return;
         }

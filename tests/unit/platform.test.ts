@@ -247,6 +247,44 @@ describe('discovery and polling', () => {
     handlers.shutdown()
   })
 
+  it('does not wipe cached detectors when discovery returns an empty cloud list', async () => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    mockGetLocations
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ locationID: 1293395, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    const platform = new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    const cached = {
+      UUID: 'uuid-myresideo-dev-1',
+      displayName: 'Kitchen Sink LD',
+      context: { device: { ...leakDevice }, locationId: 1293395 },
+    } as unknown as PlatformAccessory
+    platform.configureAccessory(cached)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('skipping stale removal'))
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Retrying device discovery'))
+    // Restored from cache so polling can continue during the outage.
+    expect(LeakSensorAccessory).toHaveBeenCalled()
+    expect(mockGetDetector).toHaveBeenCalledWith('dev-1', 1293395)
+
+    await jest.advanceTimersByTimeAsync(15_000)
+    expect(mockGetLocations).toHaveBeenCalledTimes(2)
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
+
+    handlers.shutdown()
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
   it('logs poll failures at debug with the detector name and does not error', async () => {
     mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
     mockGetDetector.mockRejectedValue(new ApiResponseError(500, 'API request failed: 500'))
