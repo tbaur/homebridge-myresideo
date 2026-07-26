@@ -96,9 +96,16 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     /** Drop corrupt cache entries that have no deviceID; leave real detectors alone. */
     private pruneCorruptAccessories;
     /**
+     * Stale removal is allowed only when the platform looks stable: circuit breaker
+     * closed, not in empty-discovery retry, and diagnostics health is not degraded
+     * (API failures / token issues / polling stalled / empty discovery).
+     */
+    private canSafelyRemoveStaleDetectors;
+    /**
      * Track detectors missing from a non-empty discovery and only unregister after
      * {@link STALE_REMOVAL_CONFIRMATIONS} consecutive omissions. A single partial
-     * cloud list must not wipe accessories.
+     * cloud list must not wipe accessories. Caller must ensure
+     * {@link canSafelyRemoveStaleDetectors} is true.
      */
     private reconcileMissingDetectors;
     private unregisterAccessories;

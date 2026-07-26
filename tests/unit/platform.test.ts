@@ -228,6 +228,41 @@ describe('discovery and polling', () => {
     jest.restoreAllMocks()
   })
 
+  it('does not remove missing detectors while the circuit breaker is open', async () => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice);
+    (ResideoApiClient as unknown as jest.Mock).mockImplementation(() => ({
+      getLocations: mockGetLocations,
+      getWaterLeakDetector: mockGetDetector,
+      getStatus: () => ({ circuitBreaker: { state: 'OPEN' } }),
+    }))
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    const platform = new ResideoPlatform(log, validConfig(), api as unknown as API)
+    platform.configureAccessory({
+      UUID: 'uuid-old',
+      displayName: 'Old Detector',
+      context: { device: { deviceID: 'old-dev' }, locationId: 1 },
+    } as unknown as PlatformAccessory)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('platform is unstable'))
+    expect(log.warn).not.toHaveBeenCalledWith(expect.stringContaining('1/3'))
+
+    await jest.advanceTimersByTimeAsync(15_000)
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
+
+    handlers.shutdown()
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
   it('does not prune on a single partial discovery during an outage', async () => {
     jest.useFakeTimers()
     jest.spyOn(Math, 'random').mockReturnValue(0.5)
