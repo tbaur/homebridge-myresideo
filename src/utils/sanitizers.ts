@@ -54,17 +54,3 @@ export function sanitizeError(err: unknown): string {
   }
   return sanitizeString(message)
 }
-
-/**
- * Mask a secret token for logging, revealing only enough to correlate it
- * across log lines without exposing the value.
- */
-export function maskToken(token: string | undefined | null): string {
-  if (!token || typeof token !== 'string') {
-    return '***'
-  }
-  if (token.length <= 8) {
-    return '***'
-  }
-  return `${token.slice(0, 4)}…${token.slice(-4)}`
-}

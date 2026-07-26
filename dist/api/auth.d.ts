@@ -11,9 +11,10 @@
  *   - uses a config-supplied access token optimistically once, then refreshes;
  *   - refreshes proactively, a buffer before expiry, so polls never race expiry;
  *   - collapses concurrent refreshes into a single in-flight request;
- *   - retries transient (network/timeout) refresh failures with backoff;
+ *   - retries transient (network/timeout/5xx/429) refresh failures with backoff;
  *   - distinguishes an invalid refresh token from rejected API credentials;
- *   - persists the rotated refresh token via {@link TokenManagerOptions.onRefreshToken}.
+ *   - persists refresh + access tokens via {@link TokenManagerOptions.onRefreshToken}
+ *     after every successful refresh (so a restart can reuse a fresh access token).
  */
 import type { PluginLogger, TokenResponse } from '../types';
 /** Minimal logger surface; any subset of methods may be provided. */
@@ -24,8 +25,14 @@ export interface TokenManagerOptions {
     refreshToken: string;
     /** Optional starting access token (e.g. restored from config). */
     accessToken?: string;
-    /** Invoked whenever the API rotates the refresh token, so it can be persisted. */
-    onRefreshToken?: (newRefreshToken: string) => Promise<void> | void;
+    /**
+     * Invoked after every successful refresh so tokens can be persisted. Always
+     * includes the current refresh token (rotated or not) and the new access token.
+     */
+    onRefreshToken?: (tokens: {
+        refreshToken: string;
+        accessToken: string;
+    }) => Promise<void> | void;
     /** Optional diagnostics hook invoked after every successful token refresh. */
     onRefreshSuccess?: () => void;
     /** Optional diagnostics hook invoked when a refresh ultimately fails. */
@@ -87,8 +94,8 @@ export declare class TokenManager {
     };
     private refresh;
     /**
-     * Execute the refresh, retrying transient (network/timeout) failures with
-     * exponential backoff. Auth/parse failures are surfaced immediately.
+     * Execute the refresh, retrying transient (network/timeout/5xx/429) failures
+     * with exponential backoff. Auth/parse failures are surfaced immediately.
      */
     private performRefresh;
     private applyToken;
@@ -108,23 +115,36 @@ export interface AuthorizationCodeExchangeOptions {
     requestToken?: RequestToken;
 }
 /**
+ * Generate an opaque OAuth2 `state` value for CSRF protection on the authorize
+ * redirect. Callers must round-trip the same value through the redirect and
+ * verify it with {@link extractAuthorizationCode}.
+ */
+export declare function generateOAuthState(): string;
+/**
  * Build the browser authorize URL for the OAuth2 Authorization Code flow.
  *
  * The user opens this URL, signs in, and approves access; Resideo then redirects
- * to `redirectUri?code=...`. Used by the `get-tokens` helper script.
+ * to `redirectUri?code=...&state=...`. Used by the account-linking UI and the
+ * `get-tokens` helper script. Pass {@link generateOAuthState} (or any opaque
+ * value) as `state` and verify it on the redirect.
  */
-export declare function buildAuthorizeUrl(consumerKey: string, redirectUri: string): string;
+export declare function buildAuthorizeUrl(consumerKey: string, redirectUri: string, state?: string): string;
 /**
  * Pull the one-time authorization `code` out of whatever the user pastes back
  * after approving access in the browser. Accepts either the bare `code` or the
  * full redirect URL (e.g. `http://localhost:8581/oauth/callback?code=...&...`),
  * so the account-linking UI can be forgiving about exactly what is pasted.
  *
- * Throws a {@link ValidationError} when no usable code is present, or when the
- * URL carries an OAuth `error` instead of a code. The pasted value (which may
- * contain a code) is never echoed back in the thrown message.
+ * When `expectedState` is provided, a redirect URL must carry a matching
+ * `state` (CSRF protection). A bare code cannot prove state, so it is rejected
+ * in that mode — paste the full redirect URL instead.
+ *
+ * Throws a {@link ValidationError} when no usable code is present, when the
+ * URL carries an OAuth `error` instead of a code, or when `state` does not
+ * match. The pasted value (which may contain a code) is never echoed back in
+ * the thrown message.
  */
-export declare function extractAuthorizationCode(input: string): string;
+export declare function extractAuthorizationCode(input: string, expectedState?: string): string;
 /**
  * Exchange a one-time authorization `code` for the initial access/refresh token
  * pair (the `grant_type=authorization_code` leg of the OAuth2 flow). This is the

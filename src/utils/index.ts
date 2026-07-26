@@ -20,12 +20,11 @@ export {
   describeDeviceState,
 } from './mappers'
 
-export { backoffMs, delay } from './backoff'
+export { backoffMs, delay, parseRetryAfterMs } from './backoff'
 
 export {
   sanitizeString,
   sanitizeError,
-  maskToken,
 } from './sanitizers'
 
 export { validateConfig, sanitizeFreezeThreshold } from './validators'

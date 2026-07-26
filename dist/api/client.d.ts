@@ -8,11 +8,13 @@
  *
  * Every API call requires BOTH an OAuth2 bearer token (Authorization header)
  * and the developer `apikey` query parameter. This client injects both,
- * enforces a timeout, retries transient failures with backoff, and performs a
- * single token-refresh-and-retry on 401.
+ * enforces a timeout, retries transient failures with backoff, performs a
+ * single token-refresh-and-retry on 401, and gates requests through a circuit
+ * breaker so sustained Resideo outages fail fast instead of hammering the API.
  */
 import type { PluginLogger, ResideoLocation, WaterLeakDetector } from '../types';
 import type { TokenManager } from './auth';
+import { type CircuitBreakerConfig, type CircuitBreakerStatus } from './circuit-breaker';
 /** Minimal logger surface; any subset of methods may be provided. */
 export type ClientLogger = PluginLogger;
 /** A raw HTTP response from the low-level transport. */
@@ -27,23 +29,35 @@ export interface RequestMetric {
     durationMs: number;
     ok: boolean;
 }
+/** Subset of client status exposed to diagnostics. */
+export interface ClientStatus {
+    circuitBreaker: CircuitBreakerStatus;
+}
 export interface ApiClientOptions {
     tokenManager: TokenManager;
     /** Developer API Key, sent as the required `apikey` query parameter. */
     apikey: string;
     timeoutMs?: number;
     maxRetryAttempts?: number;
+    /** Optional overrides for the per-client circuit breaker (primarily for tests). */
+    circuitBreaker?: Partial<CircuitBreakerConfig>;
     logger?: ClientLogger;
     /** Injectable transport (primarily for tests). */
     transport?: (url: string, accessToken: string, timeoutMs: number) => Promise<RawResponse>;
     /**
      * Optional diagnostics hook invoked once per networked transport attempt with
      * its wall-clock duration and success flag. Never invoked for pre-flight
-     * failures (e.g. a token refresh that fails before any request is sent).
+     * failures (e.g. circuit breaker open, or a token refresh that fails before
+     * any request is sent).
      */
     metrics?: (sample: RequestMetric) => void;
     /** Optional diagnostics hook invoked each time a request attempt is retried. */
     onRetry?: () => void;
+    /**
+     * Optional hook fired whenever the circuit breaker transitions into the open
+     * state, so observers can count trips at the moment they happen.
+     */
+    onCircuitOpen?: () => void;
 }
 export declare class ResideoApiClient {
     private readonly tokenManager;
@@ -54,16 +68,32 @@ export declare class ResideoApiClient {
     private readonly transport;
     private readonly metrics?;
     private readonly onRetry?;
+    private readonly onCircuitOpen?;
+    private readonly circuitBreaker;
     constructor(options: ApiClientOptions);
     /** GET all locations (with their embedded devices) for the authenticated user. */
     getLocations(): Promise<ResideoLocation[]>;
     /** GET a single water leak detector's current status. */
     getWaterLeakDetector(deviceID: string, locationId: number | string): Promise<WaterLeakDetector>;
+    /** Current resilience status (circuit breaker). */
+    getStatus(): ClientStatus;
+    /** Reset the circuit breaker (primarily for tests). */
+    resetCircuitBreaker(): void;
     /**
      * Perform an authenticated GET. Adds `apikey` plus any extra query params,
-     * retries transient failures, and refreshes the token once on a 401.
+     * gates through the circuit breaker, retries transient failures, and refreshes
+     * the token once on a 401.
+     *
+     * @param validate Optional post-parse check that runs before the attempt is
+     *   counted as a breaker success. Thrown errors are treated as request failures.
      */
-    get<T>(baseUrl: string, params: Record<string, string>): Promise<T>;
+    get<T>(baseUrl: string, params: Record<string, string>, validate?: (parsed: unknown) => T): Promise<T>;
+    /**
+     * Surface circuit-breaker transitions so operators can see when the Resideo
+     * API is being treated as unavailable and when it recovers. OPEN is warn;
+     * HALF_OPEN (probe) and CLOSED (recovery) are info.
+     */
+    private logCircuitTransition;
     private buildUrl;
     private requestWithRetry;
     /**

@@ -55,10 +55,12 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * looping the capped backoff forever and spamming the log. This covers bad
      * credentials/re-link conditions ({@link AuthenticationError} and its
      * {@link RefreshTokenInvalidError} subclass, {@link ConfigurationError}), a
-     * permissions problem ({@link ForbiddenError}), an unparseable/unexpected
-     * payload ({@link ApiParseError}), and any non-retryable HTTP response such
-     * as a 404 ({@link ApiResponseError} with `isRetryable === false`). Transient
-     * 5xx/network/timeout errors remain retryable.
+     * permissions problem ({@link ForbiddenError}), and any non-retryable HTTP
+     * response such as a 404 ({@link ApiResponseError} with `isRetryable === false`).
+     * Transient 5xx/network/timeout errors remain retryable. A one-off
+     * {@link ApiParseError} (e.g. HTML/WAF body) is also retried — permanent
+     * schema breaks will keep failing until the cloud recovers or the user
+     * intervenes, but will not leave the plugin inert after a single blip.
      */
     private isFatal;
     /**
@@ -79,6 +81,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      */
     private pollAll;
     private handleError;
+    /**
+     * Errors that must stay visible at error level during polling (re-link /
+     * credentials / permissions). Transient API outages are not included.
+     */
+    private isActionablePollError;
     /** Diagnostics heartbeat interval in milliseconds (0 when disabled). */
     private diagnosticsIntervalMs;
     /** Effective polling cadence in seconds (mirrors refreshRateMs clamping). */
@@ -113,19 +120,29 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      */
     private emitDiagnostic;
     /**
-     * Persist a rotated refresh token back into config.json so it survives a
-     * Homebridge restart. Writes atomically (temp file + rename) so a crash
-     * mid-write cannot corrupt config. A failure here is serious — the rotated
-     * token is only in memory, so the next restart will read the now-invalidated
-     * old token and require re-linking — so it is logged at error level with that
-     * consequence spelled out, but never thrown (rotation already succeeded).
+     * Persist the current refresh + access tokens back into config.json so they
+     * survive a Homebridge restart. Rewrites the whole config file as pretty-printed
+     * JSON (4-space indent) for the matching platform block — other platforms'
+     * values are preserved, but key order/formatting for the file may change.
+     * Writes atomically (temp file + rename; on Windows, rename-aside then promote
+     * with restore-on-failure) so a crash cannot leave a half-written config and
+     * never deletes the live config before the new file is in place. A failure
+     * here is serious — tokens may only be in memory — so it is logged at error
+     * with that consequence spelled out, but never thrown (refresh already succeeded).
      */
-    private persistRefreshToken;
+    private persistTokens;
+    /**
+     * Replace `configPath` with the contents already written to `tempPath`.
+     * Prefer a direct rename (atomic on POSIX). When the platform refuses to
+     * overwrite (typical on Windows), move the live file aside, promote the
+     * temp file, and restore the backup if promotion fails — never `unlink` the
+     * live config before the new file is durable.
+     */
+    private replaceConfigFile;
     /**
      * Choose which platform block to write the rotated token into. With a single
      * block the choice is unambiguous; with several, only a unique name match is
-     * safe. Refuse to guess when multiple blocks share this instance's name,
-     * rather than risk writing the token into the wrong instance's credentials.
+     * safe. Refuse to guess when names collide or none match this instance.
      */
     private selectConfigBlock;
 }

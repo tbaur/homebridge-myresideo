@@ -8,6 +8,8 @@
  * OAuth token manager so retry behavior is consistent across the codebase.
  */
 
+import { MAX_RETRY_AFTER_MS } from '../settings'
+
 /**
  * Resolve after `ms` milliseconds.
  *
@@ -29,4 +31,31 @@ export function backoffMs(attempt: number, base = 1000, cap = 8000): number {
   const exponential = Math.min(base * 2 ** (attempt - 1), cap)
   const jitter = exponential * 0.2 * (Math.random() * 2 - 1)
   return Math.max(0, Math.round(exponential + jitter))
+}
+
+/**
+ * Parse an HTTP `Retry-After` header into milliseconds. Supports the
+ * delta-seconds and HTTP-date forms, clamps to {@link MAX_RETRY_AFTER_MS}, and
+ * returns `undefined` when the header is absent or unparseable (callers fall
+ * back to exponential backoff).
+ */
+export function parseRetryAfterMs(header: string | string[] | undefined): number | undefined {
+  const value = Array.isArray(header) ? header[0] : header
+  if (!value) {
+    return undefined
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  const seconds = Number(trimmed)
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS)
+  }
+  const dateMs = Date.parse(trimmed)
+  if (!Number.isNaN(dateMs)) {
+    const deltaMs = dateMs - Date.now()
+    return Math.min(Math.max(deltaMs, 0), MAX_RETRY_AFTER_MS)
+  }
+  return undefined
 }

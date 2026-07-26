@@ -30,6 +30,7 @@ const baseConfig = (): ResideoPlatformConfig => ({
 interface MutableReaders {
   readers: DiagnosticsReaders
   devices: { cloud: number, total: number, online: number, leak: number, lowBattery: number }
+  circuitBreakerState: { value: string }
   tokenExpiresInSec: { value: number | null }
   tokenLastRefreshAt: { value: number | null }
   tokenRefreshFailureActive: { value: boolean }
@@ -37,11 +38,13 @@ interface MutableReaders {
 
 const makeReaders = (): MutableReaders => {
   const devices = { cloud: 2, total: 2, online: 2, leak: 0, lowBattery: 0 }
+  const circuitBreakerState = { value: 'CLOSED' }
   const tokenExpiresInSec = { value: 1000 as number | null }
   const tokenLastRefreshAt = { value: null as number | null }
   const tokenRefreshFailureActive = { value: false }
 
   const readers: DiagnosticsReaders = {
+    clientStatus: () => ({ circuitBreaker: { state: circuitBreakerState.value } }),
     devices: () => ({ ...devices }),
     tokenExpiresInSec: () => tokenExpiresInSec.value,
     tokenLastRefreshAt: () => tokenLastRefreshAt.value,
@@ -49,7 +52,14 @@ const makeReaders = (): MutableReaders => {
     pollingCadenceSec: () => 120,
   }
 
-  return { readers, devices, tokenExpiresInSec, tokenLastRefreshAt, tokenRefreshFailureActive }
+  return {
+    readers,
+    devices,
+    circuitBreakerState,
+    tokenExpiresInSec,
+    tokenLastRefreshAt,
+    tokenRefreshFailureActive,
+  }
 }
 
 describe('DiagnosticsCollector', () => {
@@ -204,6 +214,20 @@ describe('DiagnosticsCollector', () => {
       expect(collector.rollup(m.readers).reasons).toContain('tokenRefreshFailing')
     })
 
+    it('is degraded when the circuit breaker is open', () => {
+      const m = makeReaders()
+      m.circuitBreakerState.value = 'OPEN'
+      const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
+      expect(collector.rollup(m.readers).reasons).toContain('circuitBreakerOpen')
+    })
+
+    it('is degraded when the circuit breaker is half-open', () => {
+      const m = makeReaders()
+      m.circuitBreakerState.value = 'HALF_OPEN'
+      const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
+      expect(collector.rollup(m.readers).reasons).toContain('circuitBreakerOpen')
+    })
+
     it('is degraded when the last poll cycle failed every device', () => {
       const m = makeReaders()
       const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
@@ -221,11 +245,30 @@ describe('DiagnosticsCollector', () => {
     it('reports multiple simultaneous reasons', () => {
       const m = makeReaders()
       m.tokenRefreshFailureActive.value = true
+      m.circuitBreakerState.value = 'OPEN'
       const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
       collector.pollCycle(0, 1, 30)
       const result = collector.rollup(m.readers)
       expect(result.health).toBe('degraded')
-      expect(result.reasons).toEqual(expect.arrayContaining(['tokenRefreshFailing', 'pollingStalled']))
+      expect(result.reasons).toEqual(expect.arrayContaining([
+        'circuitBreakerOpen',
+        'tokenRefreshFailing',
+        'pollingStalled',
+      ]))
+    })
+
+    it('records breaker trips and surfaces them on the snapshot', () => {
+      const m = makeReaders()
+      const collector = new DiagnosticsCollector({
+        pluginVersion: '1.0.0',
+        config: baseConfig(),
+        now: () => 1_700_000_000_000,
+      })
+      collector.breakerTrip()
+      const snap = collector.snapshot('diagnostics.start', m.readers)
+      expect(snap.circuitBreaker.trips).toBe(1)
+      expect(snap.circuitBreaker.lastTripAt).toBe(1_700_000_000_000)
+      expect(snap.circuitBreaker.state).toBe('CLOSED')
     })
 
     it('flows the rollup health into heartbeat lifecycle', () => {

@@ -8,7 +8,7 @@
  * @fileoverview Structured error hierarchy for predictable error handling.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ApiParseError = exports.ApiResponseError = exports.RateLimitError = exports.TimeoutError = exports.NetworkError = exports.ForbiddenError = exports.RefreshTokenInvalidError = exports.AuthenticationError = exports.ValidationError = exports.ConfigurationError = exports.ResideoError = void 0;
+exports.CircuitBreakerError = exports.ApiParseError = exports.ApiResponseError = exports.RateLimitError = exports.TimeoutError = exports.NetworkError = exports.ForbiddenError = exports.RefreshTokenInvalidError = exports.AuthenticationError = exports.ValidationError = exports.ConfigurationError = exports.ResideoError = void 0;
 exports.createApiError = createApiError;
 /**
  * Base class for all plugin errors. Carries a stable machine-readable `code`
@@ -102,6 +102,12 @@ class RateLimitError extends ResideoError {
     code = 'RATE_LIMIT_ERROR';
     isRetryable = true;
     httpStatus = 429;
+    /** Server-suggested wait from `Retry-After`, when present. */
+    retryAfterMs;
+    constructor(message, options) {
+        super(message, options?.cause ? { cause: options.cause } : undefined);
+        this.retryAfterMs = options?.retryAfterMs;
+    }
 }
 exports.RateLimitError = RateLimitError;
 /** Non-2xx API response that isn't auth/rate-limit. Retryable only for 5xx. */
@@ -116,12 +122,34 @@ class ApiResponseError extends ResideoError {
     }
 }
 exports.ApiResponseError = ApiResponseError;
-/** Response body could not be parsed as expected (e.g. invalid JSON). */
+/**
+ * Response body could not be parsed as expected (e.g. invalid JSON or an HTML
+ * WAF interstitial). Treated as retryable — a one-off bad payload should not
+ * permanently stop discovery or trip fatal handling.
+ */
 class ApiParseError extends ResideoError {
     code = 'API_PARSE_ERROR';
-    isRetryable = false;
+    isRetryable = true;
 }
 exports.ApiParseError = ApiParseError;
+/**
+ * Circuit breaker is open; the Resideo API is being treated as unavailable.
+ * Callers should fail fast until {@link retryAfterMs} elapses.
+ */
+class CircuitBreakerError extends ResideoError {
+    code = 'CIRCUIT_OPEN';
+    isRetryable = true;
+    resetTime;
+    constructor(resetTimeMs, options) {
+        const resetTime = new Date(Date.now() + resetTimeMs);
+        super(`Circuit breaker is open. Service unavailable until ${resetTime.toISOString()}`, options);
+        this.resetTime = resetTime;
+    }
+    get retryAfterMs() {
+        return Math.max(0, this.resetTime.getTime() - Date.now());
+    }
+}
+exports.CircuitBreakerError = CircuitBreakerError;
 /**
  * Map an HTTP status code to the appropriate error type.
  */

@@ -21,15 +21,16 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 
 ### Reliability
 - **Resilient OAuth2** — Access tokens are refreshed proactively, before they expire, so polling never stalls on an expired token
-- **Refresh-Token Rotation** — Rotated refresh tokens are persisted automatically and survive restarts
+- **Token Persistence** — After every successful refresh, the current refresh and access tokens are persisted automatically and survive restarts
 - **Single-Flight Refresh** — Concurrent calls share one token refresh instead of stampeding the auth endpoint
-- **Automatic Retry** — Transient network, timeout, and 5xx errors are retried with exponential backoff (for both API calls and token refresh)
+- **Automatic Retry** — Transient network, timeout, 5xx, and 429 errors are retried with exponential backoff (API calls and token refresh honor `Retry-After` when present)
+- **Circuit Breaker** — Sustained Resideo API failures open a circuit breaker so polling fails fast instead of hammering a dead endpoint; a single half-open probe checks recovery; OPEN is logged at warn, HALF_OPEN probes and CLOSED recovery at info
 - **Self-Healing Discovery** — A transient outage at startup is retried with capped backoff instead of leaving the plugin inert until a restart
-- **Clear Re-Link Signaling** — An expired/invalid refresh token, or rejected API credentials, produce a clear, actionable log message instead of a silent failure loop
-- **Readable Logs** — Each poll logs only what changed (leak, online/offline, low battery, freeze, alarms) once per transition, so the log reflects events without per-cycle noise; a full snapshot is available at debug level
-- **Per-Check-In Reports** — Each detector reports to the cloud on its configured schedule (the Resideo app's 1–3×/day update frequency); when fresh data arrives, the plugin logs a one-line summary — prefixed with that detector's name — of its current readings and poll latency
-- **Health Diagnostics** *(opt-in)* — Set `diagnosticsInterval` to log a periodic health report: API latency (p50/p95), poll success/failure, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup with reasons. Healthy↔degraded transitions are logged as they happen, and `structuredLogs` adds a machine-readable JSON line alongside the human summary
-- **Secret Hygiene** — Credentials are never logged; the `apikey` is redacted from any logged URLs
+- **Clear Re-Link Signaling** — An expired/invalid refresh token, or rejected API credentials, produce a clear, actionable log message instead of a silent failure loop (including once per poll cycle after discovery)
+- **Readable Logs** — Each poll logs only what changed (leak, online/offline, low battery, freeze, alarms) once per transition; routine poll misses stay at debug; outages surface via circuit-breaker transitions rather than per-device error spam
+- **Per-Check-In Reports** — Each detector reports to the cloud on its configured schedule (the Resideo app's 1–3×/day update frequency); polling asks Resideo for the latest cloud snapshot more often than devices typically upload, and when `lastCheckin` advances the plugin logs a one-line summary — prefixed with that detector's name — of its current readings and poll latency
+- **Health Diagnostics** *(opt-in)* — Set `diagnosticsInterval` to log a periodic health report: API latency (p50/p95), poll success/failure, circuit-breaker state, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup with reasons. Healthy↔degraded transitions are logged as they happen, and `structuredLogs` adds a machine-readable JSON line alongside the human summary
+- **Secret Hygiene** — Credentials are never logged; API error messages never include query strings or the `apikey`
 
 ### Quality
 - **Strict TypeScript** — `strict` mode (`noImplicitAny`, `strictNullChecks`, no unused locals/params, no implicit returns, and more)
@@ -52,7 +53,7 @@ npm install -g homebridge-myresideo
 
 Create a developer application at [developer.honeywellhome.com](https://developer.honeywellhome.com) to obtain a **Consumer Key (API Key)** and **Consumer Secret (API Secret)**.
 
-> **Link your account in the plugin settings.** After installing, open this plugin's settings in the Homebridge UI and use the **Link your Resideo account** panel: enter your Consumer Key and Secret, click **Open Resideo sign-in**, approve access, then paste the redirected URL (or just the `code` it contains) back to finish — the access/refresh tokens are exchanged and saved for you. The `code` travels in the redirect URL itself, so this works the same whether Homebridge runs locally or on a remote host. Prefer the command line? The included `get-tokens` helper runs the same flow from a clone of this repo (`npm install && npm run get-tokens`). The full walkthrough — registering the redirect URL, the paste step, and the script fallback — is in [`docs/AUTH.md`](docs/AUTH.md); the underlying API is documented in [`docs/API.md`](docs/API.md).
+> **Link your account in the plugin settings.** After installing, open this plugin's settings in the Homebridge UI and use the **Link your Resideo account** panel: enter your Consumer Key and Secret, click **Open Resideo sign-in**, approve access, then paste the **full redirect URL** from the address bar back to finish — the access/refresh tokens are exchanged and saved for you. Paste the full URL so the OAuth `state` can be verified. The `code` travels in the redirect URL itself, so this works the same whether Homebridge runs locally or on a remote host. Prefer the command line? The included `get-tokens` helper runs the same flow from a clone of this repo (`npm install && npm run get-tokens`). The full walkthrough — registering the redirect URL, the paste step, and the script fallback — is in [`docs/AUTH.md`](docs/AUTH.md); the underlying API is documented in [`docs/API.md`](docs/API.md).
 
 ### 3. Configure
 

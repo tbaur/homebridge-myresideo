@@ -13,6 +13,7 @@ const mockUpdateStatus = jest.fn()
 const mockReadFile = jest.fn()
 const mockWriteFile = jest.fn()
 const mockRename = jest.fn()
+const mockRm = jest.fn()
 
 jest.mock('../../src/api', () => ({
   ResideoApiClient: jest.fn(),
@@ -28,12 +29,20 @@ jest.mock('node:fs', () => ({
     readFile: mockReadFile,
     writeFile: mockWriteFile,
     rename: mockRename,
+    rm: mockRm,
   },
 }))
 
 import { ResideoApiClient, TokenManager } from '../../src/api'
 import { LeakSensorAccessory } from '../../src/devices/leak-sensor'
-import { ApiParseError, ApiResponseError, ForbiddenError, NetworkError, RefreshTokenInvalidError } from '../../src/errors'
+import {
+  ApiParseError,
+  ApiResponseError,
+  AuthenticationError,
+  ForbiddenError,
+  NetworkError,
+  RefreshTokenInvalidError,
+} from '../../src/errors'
 import ResideoPlatform from '../../src/platform'
 import { DEFAULT_REFRESH_RATE_SEC, MIN_REFRESH_RATE_SEC } from '../../src/settings'
 import type { ResideoPlatformConfig, WaterLeakDetector } from '../../src/types'
@@ -97,15 +106,24 @@ beforeEach(() => {
   (ResideoApiClient as unknown as jest.Mock).mockImplementation(() => ({
     getLocations: mockGetLocations,
     getWaterLeakDetector: mockGetDetector,
+    getStatus: () => ({ circuitBreaker: { state: 'CLOSED' } }),
   }));
   (TokenManager as unknown as jest.Mock).mockImplementation((opts: unknown) => ({ opts }));
-  (LeakSensorAccessory as unknown as jest.Mock).mockImplementation(() => ({ updateStatus: mockUpdateStatus }))
+  (LeakSensorAccessory as unknown as jest.Mock).mockImplementation((
+    _platform: unknown,
+    accessory: { displayName?: string },
+    options?: { name?: string },
+  ) => ({
+    updateStatus: mockUpdateStatus,
+    displayName: options?.name || accessory?.displayName || 'Water Leak Detector',
+  }))
   mockGetLocations.mockReset()
   mockGetDetector.mockReset()
   mockUpdateStatus.mockReset()
   mockReadFile.mockReset()
   mockWriteFile.mockReset().mockResolvedValue(undefined)
   mockRename.mockReset().mockResolvedValue(undefined)
+  mockRm.mockReset().mockResolvedValue(undefined)
 })
 
 describe('ResideoPlatform construction', () => {
@@ -199,6 +217,166 @@ describe('discovery and polling', () => {
     handlers.shutdown()
   })
 
+  it('prunes cached accessories missing a deviceID', async () => {
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    const platform = new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    const corrupt = {
+      UUID: 'uuid-corrupt',
+      displayName: 'Corrupt Detector',
+      context: { device: {} },
+    } as unknown as PlatformAccessory
+    platform.configureAccessory(corrupt)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    expect(api.unregisterPlatformAccessories).toHaveBeenCalledWith(
+      'homebridge-myresideo',
+      'MyResideo',
+      [corrupt],
+    )
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('without a deviceID'),
+    )
+
+    handlers.shutdown()
+  })
+
+  it('logs poll failures at debug with the detector name and does not error', async () => {
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockRejectedValue(new ApiResponseError(500, 'API request failed: 500'))
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    expect(log.debug).toHaveBeenCalledWith(
+      expect.stringContaining('Polling skipped for Water Leak Detector: API request failed: 500'),
+    )
+    expect(log.error).not.toHaveBeenCalledWith(expect.stringContaining('poll'))
+    expect(log.error).not.toHaveBeenCalledWith(expect.stringContaining('API request failed'))
+
+    handlers.shutdown()
+  })
+
+  it('surfaces a refresh-token failure during polling once at error (not debug-only)', async () => {
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockRejectedValue(new RefreshTokenInvalidError())
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Re-link'))
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('[poll]'))
+
+    handlers.shutdown()
+  })
+
+  it('surfaces a forbidden poll failure with permissions guidance', async () => {
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockRejectedValue(new ForbiddenError('forbidden'))
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('HTTP 403'))
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('authorized'))
+
+    handlers.shutdown()
+  })
+
+  it('surfaces a generic auth poll failure with re-link guidance', async () => {
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockRejectedValue(new AuthenticationError('API request failed: 401'))
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Authentication failed'))
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Re-link'))
+
+    handlers.shutdown()
+  })
+
+  it('logs an actionable poll auth failure only once across multiple detectors', async () => {
+    const second: WaterLeakDetector = { ...leakDevice, deviceID: 'dev-2' }
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice, second] }])
+    mockGetDetector.mockRejectedValue(new RefreshTokenInvalidError())
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    const reLinkCalls = (log.error as jest.Mock).mock.calls
+      .map(args => args[0] as string)
+      .filter(line => typeof line === 'string' && line.includes('Re-link'))
+    expect(reLinkCalls).toHaveLength(1)
+
+    handlers.shutdown()
+  })
+
+  it('re-surfaces a poll auth failure on a later cycle (once per cycle)', async () => {
+    jest.useFakeTimers()
+    try {
+      mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+      mockGetDetector.mockRejectedValue(new RefreshTokenInvalidError())
+
+      const log = makeLog()
+      const { api, handlers } = makeApi()
+      new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+      handlers.didFinishLaunching()
+      await jest.advanceTimersByTimeAsync(0) // discovery + immediate poll
+
+      const countReLink = () => (log.error as jest.Mock).mock.calls
+        .map(args => args[0] as string)
+        .filter(line => typeof line === 'string' && line.includes('Re-link')).length
+
+      expect(countReLink()).toBe(1)
+
+      await jest.advanceTimersByTimeAsync(DEFAULT_REFRESH_RATE_SEC * 1000)
+      expect(countReLink()).toBe(2)
+
+      handlers.shutdown()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('wires the circuit-breaker trip hook into diagnostics', () => {
+    const log = makeLog()
+    const { api } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    const clientOpts = (ResideoApiClient as unknown as jest.Mock).mock.calls[0][0] as {
+      onCircuitOpen?: () => void
+    }
+    expect(typeof clientOpts.onCircuitOpen).toBe('function')
+  })
+
   it('skips a poll tick when a previous cycle is still running', async () => {
     mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
     let releaseDetector: (d: WaterLeakDetector) => void = () => {}
@@ -226,10 +404,13 @@ describe('discovery and polling', () => {
 describe('discovery error handling', () => {
   afterEach(() => {
     jest.useRealTimers()
+    jest.restoreAllMocks()
   })
 
   it('retries discovery with backoff after a transient failure', async () => {
     jest.useFakeTimers()
+    // Pin jitter so the first discovery retry is exactly the 15s base.
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
     mockGetLocations
       .mockRejectedValueOnce(new NetworkError('transient'))
       .mockResolvedValueOnce([{ locationID: 1, devices: [leakDevice] }])
@@ -272,7 +453,6 @@ describe('discovery error handling', () => {
 
   it.each([
     ['a forbidden (403) error', () => new ForbiddenError('forbidden')],
-    ['an unparseable payload', () => new ApiParseError('bad json')],
     ['a non-retryable 404', () => new ApiResponseError(404, 'not found')],
   ])('does not retry discovery after %s', async (_label, makeErr) => {
     jest.useFakeTimers()
@@ -289,6 +469,30 @@ describe('discovery error handling', () => {
 
     await jest.advanceTimersByTimeAsync(5 * 60_000)
     expect(mockGetLocations).toHaveBeenCalledTimes(1)
+
+    handlers.shutdown()
+  })
+
+  it('retries discovery after a one-off unparseable payload', async () => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    mockGetLocations
+      .mockRejectedValueOnce(new ApiParseError('bad json'))
+      .mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+    expect(mockGetLocations).toHaveBeenCalledTimes(1)
+    expect(log.error).not.toHaveBeenCalledWith(expect.stringContaining('non-recoverable'))
+
+    await jest.advanceTimersByTimeAsync(15_000)
+    expect(mockGetLocations).toHaveBeenCalledTimes(2)
+    expect(api.registerPlatformAccessories).toHaveBeenCalledTimes(1)
 
     handlers.shutdown()
   })
@@ -375,21 +579,80 @@ describe('refresh token persistence', () => {
     mockReadFile.mockResolvedValue(JSON.stringify({
       platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
     }))
+    mockRename.mockResolvedValue(undefined)
 
     const log = makeLog()
     const { api } = makeApi()
     new ResideoPlatform(log, validConfig(), api as unknown as API)
 
     const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
-      onRefreshToken: (token: string) => Promise<void>
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
     }
-    await tokenOpts.onRefreshToken('rotated-token')
+    await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
     expect(mockWriteFile).toHaveBeenCalledTimes(1)
     const [tempPath, content] = mockWriteFile.mock.calls[0] as [string, string]
     expect(tempPath).toMatch(/\.tmp$/)
     expect(content).toContain('rotated-token')
+    expect(content).toContain('access-new')
     expect(mockRename).toHaveBeenCalledWith(tempPath, '/tmp/config.json')
+    expect(mockRm).not.toHaveBeenCalled()
+  })
+
+  it('replaces config via rename-aside when rename cannot overwrite (Windows)', async () => {
+    mockReadFile.mockResolvedValue(JSON.stringify({
+      platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
+    }))
+    const eexist = Object.assign(new Error('EEXIST'), { code: 'EEXIST' })
+    mockRename
+      .mockRejectedValueOnce(eexist)
+      .mockResolvedValue(undefined)
+    mockRm.mockResolvedValue(undefined)
+
+    const log = makeLog()
+    const { api } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
+    }
+    await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
+
+    const [tempPath] = mockWriteFile.mock.calls[0] as [string, string]
+    // 1) temp → config (fails EEXIST), 2) config → backup, 3) temp → config
+    expect(mockRename).toHaveBeenNthCalledWith(1, tempPath, '/tmp/config.json')
+    expect(mockRename.mock.calls[1][0]).toBe('/tmp/config.json')
+    expect(mockRename.mock.calls[1][1]).toMatch(/\.bak$/)
+    expect(mockRename).toHaveBeenNthCalledWith(3, tempPath, '/tmp/config.json')
+    expect(mockRm).toHaveBeenCalledWith(expect.stringMatching(/\.bak$/), { force: true })
+  })
+
+  it('restores the backup if Windows promote fails after rename-aside', async () => {
+    mockReadFile.mockResolvedValue(JSON.stringify({
+      platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
+    }))
+    const eexist = Object.assign(new Error('EEXIST'), { code: 'EEXIST' })
+    const promoteFail = new Error('promote failed')
+    mockRename
+      .mockRejectedValueOnce(eexist)
+      .mockResolvedValueOnce(undefined) // config → backup
+      .mockRejectedValueOnce(promoteFail) // temp → config
+      .mockResolvedValueOnce(undefined) // backup → config (restore)
+
+    const log = makeLog()
+    const { api } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
+    }
+    await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
+
+    const backupPath = mockRename.mock.calls[1][1] as string
+    expect(backupPath).toMatch(/\.bak$/)
+    expect(mockRename).toHaveBeenNthCalledWith(4, backupPath, '/tmp/config.json')
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Could not persist'))
+    expect(mockRm).not.toHaveBeenCalled()
   })
 
   it('does not throw when persistence fails', async () => {
@@ -400,9 +663,11 @@ describe('refresh token persistence', () => {
     new ResideoPlatform(log, validConfig(), api as unknown as API)
 
     const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
-      onRefreshToken: (token: string) => Promise<void>
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
     }
-    await expect(tokenOpts.onRefreshToken('rotated-token')).resolves.toBeUndefined()
+    await expect(
+      tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' }),
+    ).resolves.toBeUndefined()
     expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Could not persist'))
   })
 
@@ -419,12 +684,34 @@ describe('refresh token persistence', () => {
     new ResideoPlatform(log, validConfig(), api as unknown as API)
 
     const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
-      onRefreshToken: (token: string) => Promise<void>
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
     }
-    await tokenOpts.onRefreshToken('rotated-token')
+    await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
     expect(mockWriteFile).not.toHaveBeenCalled()
     expect(log.error).toHaveBeenCalledWith(expect.stringContaining('unique "name"'))
+  })
+
+  it('refuses to persist when no platform block matches this instance name', async () => {
+    mockReadFile.mockResolvedValue(JSON.stringify({
+      platforms: [
+        { platform: 'MyResideo', name: 'Kitchen', credentials: { refreshToken: 'old-a' } },
+        { platform: 'MyResideo', name: 'Garage', credentials: { refreshToken: 'old-b' } },
+      ],
+    }))
+
+    const log = makeLog()
+    const { api } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
+    }
+    await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
+
+    expect(mockWriteFile).not.toHaveBeenCalled()
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('no MyResideo platform block matches'))
+    expect(log.error).not.toHaveBeenCalledWith(expect.stringContaining('share the same name'))
   })
 
   it('selects the block matching this instance name when several blocks exist', async () => {
@@ -440,14 +727,15 @@ describe('refresh token persistence', () => {
     new ResideoPlatform(log, validConfig(), api as unknown as API)
 
     const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
-      onRefreshToken: (token: string) => Promise<void>
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
     }
-    await tokenOpts.onRefreshToken('rotated-token')
+    await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
     const [, content] = mockWriteFile.mock.calls[0] as [string, string]
     const written = JSON.parse(content) as { platforms: ResideoPlatformConfig[] }
     expect(written.platforms[0].credentials.refreshToken).toBe('old-other')
     expect(written.platforms[1].credentials.refreshToken).toBe('rotated-token')
+    expect(written.platforms[1].credentials.accessToken).toBe('access-new')
   })
 })
 
@@ -538,6 +826,7 @@ describe('diagnostics', () => {
     expect(healthLine).toContain('poll')
     expect(healthLine).toContain('retried')
     expect(healthLine).toContain('latency p50')
+    expect(healthLine).toContain('breaker CLOSED')
     expect(healthLine).not.toContain('req ')
     expect(healthLine).not.toContain('api p50')
 
@@ -582,7 +871,12 @@ describe('diagnostics', () => {
       .map(args => args[0] as string)
       .find(line => typeof line === 'string' && line.startsWith('{'))
     expect(jsonLine).toBeDefined()
-    const parsed = JSON.parse(jsonLine as string) as { msg: string, lifecycle: { health: string } }
+    const parsed = JSON.parse(jsonLine as string) as {
+      msg: string
+      lifecycle: { health: string }
+      circuitBreaker: { state: string }
+    }
+    expect(parsed.circuitBreaker.state).toBe('CLOSED')
     expect(parsed.msg).toBe('diagnostics.start')
     expect(parsed.lifecycle.health).toBe('healthy')
     // The lifecycle fields live only under the nested object, not duplicated at root.

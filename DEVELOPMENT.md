@@ -13,7 +13,9 @@ src/
     auth.ts           OAuth2 TokenManager (refresh-ahead, single-flight, rotation)
                       plus the authorize-URL / code-exchange helpers shared by the
                       account-linking UI and the get-tokens script.
-    client.ts         HTTP client (apikey + bearer, timeout, retry, 401 handling).
+    client.ts         HTTP client (apikey + bearer, timeout, retry, 401 handling,
+                      circuit breaker).
+    circuit-breaker.ts  Fail-fast protection for sustained Resideo API outages.
     index.ts          Barrel exports.
   devices/
     leak-sensor.ts    HomeKit accessory: leak/temp/humidity/battery/freeze.
@@ -24,12 +26,14 @@ src/
   utils/
     backoff.ts        Jittered exponential-backoff + delay helpers (shared).
     mappers.ts        Pure device-state → HomeKit mapping helpers.
-    sanitizers.ts     Secret redaction / token masking for logs.
+    sanitizers.ts     Secret redaction for error/log strings.
     validators.ts     Startup config validation.
     index.ts          Barrel exports.
 homebridge-ui/        Custom Homebridge settings UI (account linking).
-  server.js           Wraps the compiled dist/ OAuth2 helpers behind
-                      @homebridge/plugin-ui-utils request handlers.
+  handlers.js         Pure OAuth helpers (authorize URL + code exchange) used
+                      by the UI server and covered by unit tests.
+  server.js           Wraps handlers.js behind @homebridge/plugin-ui-utils
+                      request handlers.
   public/index.html   "Link your Resideo account" panel; renders the schema
                       form beneath it for the remaining options.
 scripts/
@@ -50,12 +54,14 @@ scripts/
 
 This plugin talks to a **poll-based** REST API, so its resilience focuses on making each polling cycle robust:
 
-- **Token lifecycle** — a config-supplied access token is used optimistically once, then access tokens refresh ahead of expiry and on `401`; concurrent refreshes are de-duplicated (single-flight); rotated refresh tokens are persisted back to `config.json` atomically (temp file + rename).
-- **Transient-error retry** — network errors, timeouts, `5xx`, and `429` responses retry with jittered exponential backoff (a `429` `Retry-After` header is honored when present); this applies to both API calls and the token-refresh request. `401` triggers one refresh-and-retry; `403` (`ForbiddenError`) and other `4xx` do not retry.
+- **Token lifecycle** — a config-supplied access token is used optimistically once, then access tokens refresh ahead of expiry and on `401`; concurrent refreshes are de-duplicated (single-flight); after every successful refresh the current refresh + access tokens are persisted back to `config.json` atomically (temp file + rename; on Windows rename-aside with restore-on-failure; pretty-printed whole-file rewrite).
+- **Transient-error retry** — API calls and token refresh retry network errors, timeouts, `5xx`, and `429` with jittered exponential backoff; both honor a `429` `Retry-After` header when present. `401` on an API call triggers one refresh-and-retry (including when the 401 arrives on the final attempt budget); `403` (`ForbiddenError`) and other non-retryable `4xx` do not retry.
+- **Circuit breaker** — after a threshold of service-health failures (5xx/network/timeout/parse), the breaker opens and subsequent requests fail fast until a cooldown elapses; a single half-open probe decides whether to close again (avoids races with concurrent device polls). Transitions log at warn (OPEN) / info (HALF_OPEN probe and CLOSED recovery). Per-device transient poll misses stay at debug; auth/re-link failures still log once per poll cycle at error.
+- **Poll freshness bound** — detectors typically upload to the cloud only 1–3×/day (`lastCheckin`); `refreshRate` bounds how often the plugin asks Resideo for the latest cloud snapshot, not how often the physical device reports.
 - **Bounded timeouts** — every request, including token refresh, has a timeout so a stalled connection cannot wedge the poll loop.
-- **Self-healing discovery** — if initial discovery fails on a transient error, it retries with capped exponential backoff (15s → 5min). Non-recoverable errors (invalid refresh token, rejected credentials) are not retried.
+- **Self-healing discovery** — if initial discovery fails on a transient error, it retries with jittered capped exponential backoff (15s → 5min). Non-recoverable errors (invalid refresh token, rejected credentials) are not retried. In-flight poll workers stop claiming new devices once shutdown begins.
 - **Bounded-concurrency polling** — devices are polled up to `POLL_DEVICE_CONCURRENCY` (4) at a time, with an in-flight guard that skips a tick if the previous cycle is still running.
-- **Stale-data handling** — missing temperature/humidity readings raise a `StatusFault` instead of silently retaining a stale value; a missing battery reading is not asserted as a misleading default.
+- **Stale-data handling** — missing temperature/humidity/battery readings raise a `StatusFault` instead of silently retaining a stale value; a missing battery reading is never asserted as a misleading 100% default.
 - **Polling cadence** — default 120s, configurable, clamped to a 30s minimum to avoid hammering the API.
 - **Opt-in diagnostics** — when `diagnosticsInterval > 0`, a `DiagnosticsCollector` accumulates in-memory counters (fed by client `metrics`/`onRetry` hooks, token-refresh callbacks, and poll-cycle results) and emits a periodic heartbeat plus boot/shutdown snapshots. Reads are synchronous and never touch the network; all emission is wrapped so a diagnostics failure can never crash the host. The config echo in snapshots is redacted (no credentials).
 

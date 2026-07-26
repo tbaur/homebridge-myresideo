@@ -13,9 +13,10 @@
  *   - `rollup()`         — `{ health, reasons[] }` health classification
  *
  * This is the polling-only Resideo variant of the myleviton collector: there is
- * no WebSocket, circuit breaker, rate limiter, or cache, so those subsystems are
- * absent. It only ever reads in-memory state via the supplied `readers`; it
- * never performs any network I/O.
+ * no WebSocket, rate limiter, or cache. The circuit breaker is included so
+ * sustained API outages surface as `circuitBreakerOpen` in the health rollup.
+ * It only ever reads in-memory state via the supplied `readers`; it never
+ * performs any network I/O.
  */
 
 import type { DeviceGauges, DiagnosticsSnapshot, ResideoPlatformConfig } from '../types'
@@ -32,11 +33,17 @@ const API_ERROR_MIN_SAMPLES = 10
 /** Recent error rate (0..1) at or above which health is considered degraded. */
 const API_ERROR_RATE_THRESHOLD = 0.5
 
+/** Subset of `client.getStatus()` the collector relies on. */
+export interface ClientStatusLike {
+  circuitBreaker: { state: string }
+}
+
 /**
  * Accessors the collector calls to read live in-memory state. All are
  * synchronous and must never block on the network.
  */
 export interface DiagnosticsReaders {
+  clientStatus: () => ClientStatusLike
   devices: () => DeviceGauges
   tokenExpiresInSec: () => number | null
   tokenLastRefreshAt: () => number | null
@@ -59,6 +66,7 @@ interface CounterSnapshot {
   tokenRefreshes: number
   retries: number
   stateChanges: number
+  breakerTrips: number
 }
 
 /** Health classification result. */
@@ -84,12 +92,14 @@ export class DiagnosticsCollector {
   private tokenRefreshes = 0
   private retries = 0
   private stateChanges = 0
+  private breakerTrips = 0
 
   // Internal gauges advanced by increment methods
   private lastPollDurationMs: number | null = null
   /** Outcome of the most recent poll cycle, used by the rollup. */
   private lastPollOk: number | null = null
   private lastPollFailed: number | null = null
+  private lastTripAt: number | null = null
 
   // Bounded windows
   private readonly latencies: number[] = []
@@ -109,6 +119,7 @@ export class DiagnosticsCollector {
   /**
    * Record a single API request outcome and its wall-clock duration. Fires for
    * every networked request, including timeouts and errors (ok === false).
+   * Pre-flight rejections (circuit breaker open) are not reported here.
    */
   apiRequest(latencyMs: number, ok: boolean): void {
     this.apiRequests++
@@ -158,6 +169,12 @@ export class DiagnosticsCollector {
     this.stateChanges++
   }
 
+  /** Record a circuit-breaker trip (transition into the open state). */
+  breakerTrip(): void {
+    this.breakerTrips++
+    this.lastTripAt = this.now()
+  }
+
   /**
    * Nearest-rank percentile (0..100) over the bounded recent-latency window.
    * Returns 0 when no samples are available.
@@ -175,12 +192,19 @@ export class DiagnosticsCollector {
 
   /**
    * Classify current health from live readers. Health is degraded if any of:
-   * the recent API error rate is at or over threshold with a minimum sample
-   * size; a token refresh is currently in its failure cooldown; or the last
-   * completed poll cycle failed every device (`failed > 0 && ok === 0`).
+   * the circuit breaker is open; the recent API error rate is at or over
+   * threshold with a minimum sample size; a token refresh is currently in its
+   * failure cooldown; or the last completed poll cycle failed every device
+   * (`failed > 0 && ok === 0`).
    */
   rollup(readers: DiagnosticsReaders): HealthRollup {
     const reasons: string[] = []
+
+    const breakerState = readers.clientStatus().circuitBreaker.state
+    // OPEN and HALF_OPEN both mean the Resideo API is not fully healthy yet.
+    if (breakerState === 'OPEN' || breakerState === 'HALF_OPEN') {
+      reasons.push('circuitBreakerOpen')
+    }
 
     const total = this.recentOutcomes.length
     if (total >= API_ERROR_MIN_SAMPLES) {
@@ -225,6 +249,7 @@ export class DiagnosticsCollector {
       errors: current.apiErrors - this.marker.apiErrors,
       retries: current.retries - this.marker.retries,
       stateChanges: current.stateChanges - this.marker.stateChanges,
+      trips: current.breakerTrips - this.marker.breakerTrips,
     }
 
     const report = this.buildReport('health', counters, readers)
@@ -245,6 +270,7 @@ export class DiagnosticsCollector {
       errors: this.apiErrors,
       retries: this.retries,
       stateChanges: this.stateChanges,
+      trips: this.breakerTrips,
     }
 
     const report = this.buildReport(msg, counters, readers)
@@ -266,6 +292,7 @@ export class DiagnosticsCollector {
       tokenRefreshes: this.tokenRefreshes,
       retries: this.retries,
       stateChanges: this.stateChanges,
+      breakerTrips: this.breakerTrips,
     }
   }
 
@@ -275,6 +302,7 @@ export class DiagnosticsCollector {
     readers: DiagnosticsReaders,
   ): DiagnosticsSnapshot {
     const { health, reasons } = this.rollup(readers)
+    const status = readers.clientStatus()
 
     return {
       msg,
@@ -285,6 +313,11 @@ export class DiagnosticsCollector {
         pluginVersion: this.pluginVersion,
       },
       devices: readers.devices(),
+      circuitBreaker: {
+        state: status.circuitBreaker.state,
+        lastTripAt: this.lastTripAt,
+        trips: counters.trips,
+      },
       polling: {
         cadenceSec: readers.pollingCadenceSec(),
         lastDurationMs: this.lastPollDurationMs,
@@ -318,6 +351,7 @@ interface CounterValues {
   errors: number
   retries: number
   stateChanges: number
+  trips: number
 }
 
 /**

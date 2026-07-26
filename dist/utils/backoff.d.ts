@@ -22,4 +22,11 @@ export declare function delay(ms: number): Promise<void>;
  * the first retry waits ~`base`, the second ~`2*base`, etc.
  */
 export declare function backoffMs(attempt: number, base?: number, cap?: number): number;
+/**
+ * Parse an HTTP `Retry-After` header into milliseconds. Supports the
+ * delta-seconds and HTTP-date forms, clamps to {@link MAX_RETRY_AFTER_MS}, and
+ * returns `undefined` when the header is absent or unparseable (callers fall
+ * back to exponential backoff).
+ */
+export declare function parseRetryAfterMs(header: string | string[] | undefined): number | undefined;
 //# sourceMappingURL=backoff.d.ts.map

@@ -105,6 +105,13 @@ export class RateLimitError extends ResideoError {
   readonly code = 'RATE_LIMIT_ERROR'
   readonly isRetryable = true
   override readonly httpStatus = 429
+  /** Server-suggested wait from `Retry-After`, when present. */
+  readonly retryAfterMs?: number
+
+  constructor(message: string, options?: { cause?: Error; retryAfterMs?: number }) {
+    super(message, options?.cause ? { cause: options.cause } : undefined)
+    this.retryAfterMs = options?.retryAfterMs
+  }
 }
 
 /** Non-2xx API response that isn't auth/rate-limit. Retryable only for 5xx. */
@@ -120,10 +127,34 @@ export class ApiResponseError extends ResideoError {
   }
 }
 
-/** Response body could not be parsed as expected (e.g. invalid JSON). */
+/**
+ * Response body could not be parsed as expected (e.g. invalid JSON or an HTML
+ * WAF interstitial). Treated as retryable — a one-off bad payload should not
+ * permanently stop discovery or trip fatal handling.
+ */
 export class ApiParseError extends ResideoError {
   readonly code = 'API_PARSE_ERROR'
-  readonly isRetryable = false
+  readonly isRetryable = true
+}
+
+/**
+ * Circuit breaker is open; the Resideo API is being treated as unavailable.
+ * Callers should fail fast until {@link retryAfterMs} elapses.
+ */
+export class CircuitBreakerError extends ResideoError {
+  readonly code = 'CIRCUIT_OPEN'
+  readonly isRetryable = true
+  readonly resetTime: Date
+
+  constructor(resetTimeMs: number, options?: { cause?: Error }) {
+    const resetTime = new Date(Date.now() + resetTimeMs)
+    super(`Circuit breaker is open. Service unavailable until ${resetTime.toISOString()}`, options)
+    this.resetTime = resetTime
+  }
+
+  get retryAfterMs(): number {
+    return Math.max(0, this.resetTime.getTime() - Date.now())
+  }
 }
 
 /**

@@ -6,8 +6,10 @@
  */
 
 import {
+  ApiParseError,
   ApiResponseError,
   AuthenticationError,
+  CircuitBreakerError,
   createApiError,
   ForbiddenError,
   RateLimitError,
@@ -60,5 +62,19 @@ describe('error metadata', () => {
     expect(json.code).toBe('RATE_LIMIT_ERROR')
     expect(json.httpStatus).toBe(429)
     expect(typeof json.timestamp).toBe('string')
+  })
+
+  it('CircuitBreakerError carries CIRCUIT_OPEN and retry timing', () => {
+    const err = new CircuitBreakerError(12_000)
+    expect(err.code).toBe('CIRCUIT_OPEN')
+    expect(err.isRetryable).toBe(true)
+    expect(err.retryAfterMs).toBeGreaterThan(0)
+    expect(err.toJSON().code).toBe('CIRCUIT_OPEN')
+  })
+
+  it('ApiParseError is retryable (transient HTML/WAF payloads)', () => {
+    const err = new ApiParseError('bad json')
+    expect(err.code).toBe('API_PARSE_ERROR')
+    expect(err.isRetryable).toBe(true)
   })
 })

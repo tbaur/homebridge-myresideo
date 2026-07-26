@@ -18,9 +18,10 @@ GET https://api.honeywellhome.com/oauth2/authorize
       ?response_type=code
       &client_id={apikey}
       &redirect_uri={redirectUri}
+      &state={opaqueState}
 ```
 
-Resideo redirects back to `{redirectUri}?code={authorizationCode}`.
+Resideo redirects back to `{redirectUri}?code={authorizationCode}&state={opaqueState}` (or `?error={oauthError}&state=…` if the user denies / the authorize step fails). This plugin always sends `state` and rejects a mismatched or missing value on the redirect (CSRF protection).
 
 ### 2. Exchange the code for tokens
 

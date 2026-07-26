@@ -5,8 +5,20 @@
  * See LICENSE file for full license text
  */
 
-import { TokenManager, buildAuthorizeUrl, exchangeAuthorizationCode, extractAuthorizationCode } from '../../src/api/auth'
-import { ApiParseError, NetworkError, RefreshTokenInvalidError, ValidationError } from '../../src/errors'
+import {
+  TokenManager,
+  buildAuthorizeUrl,
+  exchangeAuthorizationCode,
+  extractAuthorizationCode,
+  generateOAuthState,
+} from '../../src/api/auth'
+import {
+  ApiParseError,
+  NetworkError,
+  RateLimitError,
+  RefreshTokenInvalidError,
+  ValidationError,
+} from '../../src/errors'
 import { AUTHORIZE_URL } from '../../src/settings'
 import type { TokenResponse } from '../../src/types'
 
@@ -105,8 +117,29 @@ describe('TokenManager', () => {
     })
 
     await manager.getAccessToken()
-    expect(onRefreshToken).toHaveBeenCalledWith('refresh-rotated')
+    expect(onRefreshToken).toHaveBeenCalledWith({
+      refreshToken: 'refresh-rotated',
+      accessToken: 'access-1',
+    })
     expect(manager.getRefreshToken()).toBe('refresh-rotated')
+  })
+
+  it('persists access + refresh tokens even when the refresh token does not rotate', async () => {
+    const onRefreshToken = jest.fn()
+    const requestToken = jest.fn().mockResolvedValue(makeTokenResponse({ refresh_token: 'refresh-0' }))
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'refresh-0',
+      onRefreshToken,
+      requestToken,
+    })
+
+    await manager.getAccessToken()
+    expect(onRefreshToken).toHaveBeenCalledWith({
+      refreshToken: 'refresh-0',
+      accessToken: 'access-1',
+    })
   })
 
   it('rejects a token response that omits access_token', async () => {
@@ -171,6 +204,21 @@ describe('TokenManager', () => {
   it('retries a transient network failure during refresh, then succeeds', async () => {
     const requestToken = jest.fn()
       .mockRejectedValueOnce(new NetworkError('connection reset'))
+      .mockResolvedValueOnce(makeTokenResponse())
+    const manager = new TokenManager({
+      consumerKey: 'key',
+      consumerSecret: 'secret',
+      refreshToken: 'refresh-0',
+      requestToken,
+    })
+
+    await expect(manager.getAccessToken()).resolves.toBe('access-1')
+    expect(requestToken).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries a token-endpoint RateLimitError (429) during refresh, then succeeds', async () => {
+    const requestToken = jest.fn()
+      .mockRejectedValueOnce(new RateLimitError('Token endpoint rate limited (HTTP 429)', { retryAfterMs: 0 }))
       .mockResolvedValueOnce(makeTokenResponse())
     const manager = new TokenManager({
       consumerKey: 'key',
@@ -272,6 +320,14 @@ describe('TokenManager', () => {
   })
 })
 
+describe('generateOAuthState', () => {
+  it('returns a non-empty URL-safe opaque value', () => {
+    const state = generateOAuthState()
+    expect(state.length).toBeGreaterThanOrEqual(16)
+    expect(state).toMatch(/^[A-Za-z0-9_-]+$/)
+  })
+})
+
 describe('buildAuthorizeUrl', () => {
   it('builds the authorize URL with the expected query parameters', () => {
     const url = new URL(buildAuthorizeUrl('my-key', 'http://localhost:8581/oauth/callback'))
@@ -279,6 +335,11 @@ describe('buildAuthorizeUrl', () => {
     expect(url.searchParams.get('response_type')).toBe('code')
     expect(url.searchParams.get('client_id')).toBe('my-key')
     expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:8581/oauth/callback')
+  })
+
+  it('includes state when provided', () => {
+    const url = new URL(buildAuthorizeUrl('my-key', 'http://localhost:8581/oauth/callback', 'opaque-state'))
+    expect(url.searchParams.get('state')).toBe('opaque-state')
   })
 
   it('url-encodes the redirect URI', () => {
@@ -337,6 +398,26 @@ describe('extractAuthorizationCode', () => {
 
   it('rejects a bare value containing spaces (pasted extra text)', () => {
     expect(() => extractAuthorizationCode('the code is abc123')).toThrow(ValidationError)
+  })
+
+  it('accepts a redirect URL when state matches expectedState', () => {
+    expect(
+      extractAuthorizationCode(
+        'http://localhost:8581/oauth/callback?code=abc123&state=s1',
+        's1',
+      ),
+    ).toBe('abc123')
+  })
+
+  it('rejects a redirect URL when state does not match expectedState', () => {
+    expect(() => extractAuthorizationCode(
+      'http://localhost:8581/oauth/callback?code=abc123&state=wrong',
+      's1',
+    )).toThrow(ValidationError)
+  })
+
+  it('rejects a bare code when expectedState is required', () => {
+    expect(() => extractAuthorizationCode('abc123', 's1')).toThrow(ValidationError)
   })
 })
 

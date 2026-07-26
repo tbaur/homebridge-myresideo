@@ -11,7 +11,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sanitizeString = sanitizeString;
 exports.sanitizeError = sanitizeError;
-exports.maskToken = maskToken;
 /**
  * Patterns for sensitive data that should be redacted from strings/logs.
  *
@@ -57,18 +56,5 @@ function sanitizeError(err) {
         message = String(err);
     }
     return sanitizeString(message);
-}
-/**
- * Mask a secret token for logging, revealing only enough to correlate it
- * across log lines without exposing the value.
- */
-function maskToken(token) {
-    if (!token || typeof token !== 'string') {
-        return '***';
-    }
-    if (token.length <= 8) {
-        return '***';
-    }
-    return `${token.slice(0, 4)}…${token.slice(-4)}`;
 }
 //# sourceMappingURL=sanitizers.js.map
