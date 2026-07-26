@@ -34,6 +34,7 @@ interface MutableReaders {
   tokenExpiresInSec: { value: number | null }
   tokenLastRefreshAt: { value: number | null }
   tokenRefreshFailureActive: { value: boolean }
+  emptyDiscoveryActive: { value: boolean }
 }
 
 const makeReaders = (): MutableReaders => {
@@ -42,6 +43,7 @@ const makeReaders = (): MutableReaders => {
   const tokenExpiresInSec = { value: 1000 as number | null }
   const tokenLastRefreshAt = { value: null as number | null }
   const tokenRefreshFailureActive = { value: false }
+  const emptyDiscoveryActive = { value: false }
 
   const readers: DiagnosticsReaders = {
     clientStatus: () => ({ circuitBreaker: { state: circuitBreakerState.value } }),
@@ -49,6 +51,7 @@ const makeReaders = (): MutableReaders => {
     tokenExpiresInSec: () => tokenExpiresInSec.value,
     tokenLastRefreshAt: () => tokenLastRefreshAt.value,
     tokenRefreshFailureActive: () => tokenRefreshFailureActive.value,
+    emptyDiscoveryActive: () => emptyDiscoveryActive.value,
     pollingCadenceSec: () => 120,
   }
 
@@ -59,6 +62,7 @@ const makeReaders = (): MutableReaders => {
     tokenExpiresInSec,
     tokenLastRefreshAt,
     tokenRefreshFailureActive,
+    emptyDiscoveryActive,
   }
 }
 
@@ -212,6 +216,15 @@ describe('DiagnosticsCollector', () => {
       m.tokenRefreshFailureActive.value = true
       const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
       expect(collector.rollup(m.readers).reasons).toContain('tokenRefreshFailing')
+    })
+
+    it('is degraded while empty-discovery retries are active', () => {
+      const m = makeReaders()
+      m.emptyDiscoveryActive.value = true
+      const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
+      const result = collector.rollup(m.readers)
+      expect(result.health).toBe('degraded')
+      expect(result.reasons).toContain('emptyDiscovery')
     })
 
     it('is degraded when the circuit breaker is open', () => {

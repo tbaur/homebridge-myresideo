@@ -29,7 +29,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Clear Re-Link Signaling** — An expired/invalid refresh token, or rejected API credentials, produce a clear, actionable log message instead of a silent failure loop (including once per poll cycle after discovery)
 - **Readable Logs** — Each poll logs only what changed (leak, online/offline, low battery, freeze, alarms) once per transition; routine poll misses stay at debug; outages surface via circuit-breaker transitions rather than per-device error spam
 - **Per-Check-In Reports** — Each detector reports to the cloud on its configured schedule (the Resideo app's 1–3×/day update frequency); polling asks Resideo for the latest cloud snapshot more often than devices typically upload, and when `lastCheckin` advances the plugin logs a one-line summary — prefixed with that detector's name — of its current readings and poll latency
-- **Health Diagnostics** *(opt-in)* — Set `diagnosticsInterval` to log a periodic health report: API latency (p50/p95), poll success/failure, circuit-breaker state, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup with reasons. Healthy↔degraded transitions are logged as they happen, and `structuredLogs` adds a machine-readable JSON line alongside the human summary
+- **Health Diagnostics** *(opt-in)* — Set `diagnosticsInterval` to log a periodic health report: API latency (p50/p95), poll success/failure, circuit-breaker state, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup with reasons (including empty-discovery retries, which do not trip the circuit breaker). Healthy↔degraded transitions are logged as they happen, and `structuredLogs` adds a machine-readable JSON line alongside the human summary
 - **Secret Hygiene** — Credentials are never logged; API error messages never include query strings or the `apikey`
 
 ### Quality
@@ -81,7 +81,7 @@ Use the Homebridge UI (recommended) or add the platform to your config:
 
 ### 4. Restart Homebridge
 
-Your detectors are discovered at startup and appear in the Home app automatically. If you add a new detector to your Honeywell Home account later, restart Homebridge to pick it up. If Resideo returns an empty device list during a cloud outage, the plugin keeps any cached accessories and keeps retrying discovery until devices return (instead of wiping HomeKit or giving up after one empty response).
+Your detectors are discovered at startup and appear in the Home app automatically. If you add a new detector to your Honeywell Home account later, restart Homebridge to pick it up. If Resideo returns an empty or partial device list during a cloud outage, the plugin keeps cached accessories, keeps retrying discovery, and only removes a detector after it is missing from several consecutive non-empty discoveries (so a blip cannot wipe HomeKit).
 
 ## Supported Devices
 

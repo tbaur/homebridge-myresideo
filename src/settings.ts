@@ -86,6 +86,20 @@ export const INITIAL_DISCOVERY_RETRY_MS = 15_000
 export const MAX_DISCOVERY_RETRY_MS = 5 * 60_000
 
 /**
+ * Consecutive non-empty discoveries that must omit a cached detector before it
+ * is unregistered. A single partial locations payload during a Resideo outage
+ * must not wipe HomeKit accessories that are only temporarily missing.
+ */
+export const STALE_REMOVAL_CONFIRMATIONS = 3
+
+/**
+ * After this many empty-discovery attempts, per-attempt notices move to debug.
+ * A single info line is logged at that transition so quiet does not look like
+ * the plugin gave up; the next info line is when detectors return.
+ */
+export const EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS = 3
+
+/**
  * Refresh the access token this many milliseconds before it actually expires,
  * so an in-flight poll never races a token expiry.
  */

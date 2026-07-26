@@ -13,7 +13,7 @@
 - ✅ State-change logging: each poll logs leak, connectivity, low-battery, freeze, and alarm transitions once when they change (not every cycle), with a full per-device snapshot available at debug level
 - ✅ Quiet poll misses: per-device transient poll failures log at debug with the detector name (`Polling skipped for …`); auth/re-link failures still surface once per poll cycle at error; operators see API outages via circuit-breaker OPEN (warn) / HALF_OPEN+CLOSED (info) instead of per-device error spam
 - ✅ Per-check-in reporting: when a detector reports in to the cloud (on its configured check-in period — the Resideo app's 1–3×/day update frequency), a one-line summary prefixed with the detector's name logs its current readings and the poll latency, so the log reflects each device update without per-poll noise. Note: `refreshRate` bounds how often the plugin asks Resideo for the latest cloud snapshot; HomeKit freshness for leak/sensor data is still bounded by how often the physical detector uploads (`lastCheckin`)
-- ✅ Opt-in health diagnostics (`diagnosticsInterval`): a periodic heartbeat reporting API latency (p50/p95), poll success/failure, circuit-breaker state/trips, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup (circuit breaker open, high API error rate, token-refresh failure, or a fully-failed poll cycle), with boot/shutdown snapshots, healthy↔degraded transition logs, and optional structured-JSON output (`structuredLogs`)
+- ✅ Opt-in health diagnostics (`diagnosticsInterval`): a periodic heartbeat reporting API latency (p50/p95), poll success/failure, circuit-breaker state/trips, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup (circuit breaker open, high API error rate, token-refresh failure, empty-discovery retry, or a fully-failed poll cycle), with boot/shutdown snapshots, healthy↔degraded transition logs, and optional structured-JSON output (`structuredLogs`)
 - ✅ Freeze detection derived from temperature (optional Contact Sensor, per device)
 - ✅ Battery level and low-battery status (no misleading default when unreported)
 - ✅ Configurable polling (120s default, 30s minimum) with bounded concurrency and an in-flight guard
@@ -23,7 +23,7 @@
 - ✅ Refresh + access tokens persisted atomically back to `config.json` after every successful refresh (cross-platform replace)
 - ✅ Automatic retry of transient network/timeout/5xx/429 errors (API and token refresh) with exponential backoff; both honor `Retry-After` when present
 - ✅ Circuit breaker for sustained Resideo API outages (fail-fast while open; single half-open probe after cooldown; transitions logged)
-- ✅ Self-healing discovery retry after a transient startup outage (including empty cloud payloads that would otherwise wipe cached accessories)
+- ✅ Self-healing discovery retry after a transient startup outage (including empty/partial cloud payloads; stale removal requires repeated confirmation)
 - ✅ Bounded request timeouts (including token refresh)
 - ✅ Secret redaction in logs (apikey, bearer/basic auth, access/refresh tokens, consumer secret); API errors use short status text without query strings
 - ✅ Startup config validation (fail fast with actionable messages); distinguishes a bad refresh token from rejected API credentials

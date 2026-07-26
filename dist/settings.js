@@ -8,7 +8,7 @@
  * @fileoverview Plugin-wide constants and Resideo / Honeywell Home API endpoints.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_FREEZE_THRESHOLD_C = exports.TOKEN_REFRESH_FAILURE_COOLDOWN_MS = exports.MIN_DIAGNOSTICS_INTERVAL_SEC = exports.LOW_BATTERY_THRESHOLD = exports.MIN_TOKEN_LIFETIME_MS = exports.DEFAULT_TOKEN_TTL_SEC = exports.TOKEN_REFRESH_BUFFER_MS = exports.MAX_DISCOVERY_RETRY_MS = exports.INITIAL_DISCOVERY_RETRY_MS = exports.POLL_DEVICE_CONCURRENCY = exports.MAX_RESPONSE_BODY_BYTES = exports.MAX_RETRY_AFTER_MS = exports.MAX_API_RETRY_ATTEMPTS = exports.MAX_TOKEN_REFRESH_ATTEMPTS = exports.DEFAULT_REQUEST_TIMEOUT_MS = exports.MIN_REFRESH_RATE_SEC = exports.DEFAULT_REFRESH_RATE_SEC = exports.LEAK_DETECTOR_DEVICE_CLASS = exports.WATER_LEAK_DETECTOR_TYPE = exports.DEVICES_URL = exports.LOCATIONS_URL = exports.TOKEN_URL = exports.AUTHORIZE_URL = exports.API_BASE_URL = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
+exports.DEFAULT_FREEZE_THRESHOLD_C = exports.TOKEN_REFRESH_FAILURE_COOLDOWN_MS = exports.MIN_DIAGNOSTICS_INTERVAL_SEC = exports.LOW_BATTERY_THRESHOLD = exports.MIN_TOKEN_LIFETIME_MS = exports.DEFAULT_TOKEN_TTL_SEC = exports.TOKEN_REFRESH_BUFFER_MS = exports.EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS = exports.STALE_REMOVAL_CONFIRMATIONS = exports.MAX_DISCOVERY_RETRY_MS = exports.INITIAL_DISCOVERY_RETRY_MS = exports.POLL_DEVICE_CONCURRENCY = exports.MAX_RESPONSE_BODY_BYTES = exports.MAX_RETRY_AFTER_MS = exports.MAX_API_RETRY_ATTEMPTS = exports.MAX_TOKEN_REFRESH_ATTEMPTS = exports.DEFAULT_REQUEST_TIMEOUT_MS = exports.MIN_REFRESH_RATE_SEC = exports.DEFAULT_REFRESH_RATE_SEC = exports.LEAK_DETECTOR_DEVICE_CLASS = exports.WATER_LEAK_DETECTOR_TYPE = exports.DEVICES_URL = exports.LOCATIONS_URL = exports.TOKEN_URL = exports.AUTHORIZE_URL = exports.API_BASE_URL = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
 /** Name used to register the plugin with Homebridge (must match package.json name). */
 exports.PLUGIN_NAME = 'homebridge-myresideo';
 /** Platform identifier referenced in the user's Homebridge config. */
@@ -67,6 +67,18 @@ exports.POLL_DEVICE_CONCURRENCY = 4;
 exports.INITIAL_DISCOVERY_RETRY_MS = 15_000;
 /** Upper bound on the self-healing discovery backoff. */
 exports.MAX_DISCOVERY_RETRY_MS = 5 * 60_000;
+/**
+ * Consecutive non-empty discoveries that must omit a cached detector before it
+ * is unregistered. A single partial locations payload during a Resideo outage
+ * must not wipe HomeKit accessories that are only temporarily missing.
+ */
+exports.STALE_REMOVAL_CONFIRMATIONS = 3;
+/**
+ * After this many empty-discovery attempts, per-attempt notices move to debug.
+ * A single info line is logged at that transition so quiet does not look like
+ * the plugin gave up; the next info line is when detectors return.
+ */
+exports.EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS = 3;
 /**
  * Refresh the access token this many milliseconds before it actually expires,
  * so an in-flight poll never races a token expiry.

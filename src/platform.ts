@@ -32,6 +32,7 @@ import {
 } from './errors'
 import {
   DEFAULT_REFRESH_RATE_SEC,
+  EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS,
   INITIAL_DISCOVERY_RETRY_MS,
   MAX_DISCOVERY_RETRY_MS,
   MIN_DIAGNOSTICS_INTERVAL_SEC,
@@ -39,6 +40,7 @@ import {
   PLATFORM_NAME,
   PLUGIN_NAME,
   POLL_DEVICE_CONCURRENCY,
+  STALE_REMOVAL_CONFIRMATIONS,
   TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
   UUID_PREFIX,
 } from './settings'
@@ -91,6 +93,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   /** Device IDs whose one-line boot state summary has already been logged, so a
    *  discovery retry that re-registers the same detectors does not re-log it. */
   private readonly bootSummaryLogged = new Set<string>()
+  /**
+   * Consecutive non-empty discoveries that omitted each device ID. Cleared when
+   * the device reappears; removal requires {@link STALE_REMOVAL_CONFIRMATIONS}.
+   */
+  private readonly pendingRemovalCounts = new Map<string, number>()
 
   private tokenManager?: TokenManager
   private client?: ResideoApiClient
@@ -106,10 +113,15 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   private diagnostics?: DiagnosticsCollector
   private diagnosticsTimer?: ReturnType<typeof setInterval>
   private lastDiagnosticsHealth: 'healthy' | 'degraded' | null = null
-  /** Detectors returned by Resideo at the last successful discovery. */
+  /** Detectors returned by Resideo at the last trusted (fully reconciled) discovery. */
   private lastCloudDetectorCount = 0
   /** Epoch ms of the last failed token refresh, for the degraded-health window. */
   private lastRefreshFailureAt: number | null = null
+  /**
+   * True while discovery is retrying after an empty cloud device list. Feeds
+   * diagnostics `emptyDiscovery` so heartbeats are not falsely "healthy".
+   */
+  private emptyDiscoveryActive = false
 
   constructor(
     public readonly log: Logging,
@@ -232,22 +244,39 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         }
       }
 
-      this.log.info(`Discovered ${detectors.length} water leak detector(s)`)
-      this.lastCloudDetectorCount = detectors.length
+      // After a few empty retries, keep looking but stop spamming per-attempt
+      // info/warn. A long Resideo outage would otherwise fill the Homebridge log;
+      // we still emit an occasional status line so quiet ≠ gave up.
+      const quietEmptyRetry = (
+        detectors.length === 0
+        && this.discoveryAttempt >= EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS
+      )
+      if (quietEmptyRetry) {
+        this.log.debug(`Discovered ${detectors.length} water leak detector(s)`)
+      } else {
+        this.log.info(`Discovered ${detectors.length} water leak detector(s)`)
+      }
 
       // An empty locations/devices payload during a Resideo outage looks like a
       // successful discovery of zero detectors. Never treat that as terminal:
       // pruning would wipe HomeKit when cache remains, and accepting 0 with an
       // empty cache (e.g. after a prior wipe) would sit idle until a manual
       // restart even after the cloud recovers. Keep/restore what we can and retry.
+      // Empty responses also must not count toward stale-removal confirmation.
       if (detectors.length === 0) {
+        this.emptyDiscoveryActive = true
         const cachedDetectorCount = this.countCachedDetectors()
         if (cachedDetectorCount > 0) {
-          this.log.warn(
+          const message = (
             `Discovery returned 0 detectors while ${cachedDetectorCount} cached `
             + `accessor${cachedDetectorCount === 1 ? 'y' : 'ies'} remain; skipping stale `
-            + 'removal and retrying (empty cloud responses must not wipe HomeKit).',
+            + 'removal and retrying (empty cloud responses must not wipe HomeKit).'
           )
+          if (quietEmptyRetry) {
+            this.log.debug(message)
+          } else {
+            this.log.warn(message)
+          }
           // Corrupt cache entries without a deviceID are still safe to drop.
           this.pruneCorruptAccessories()
           this.restoreHandlersFromCache()
@@ -257,21 +286,43 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
             this.startDiagnostics()
           }
         } else {
-          this.log.warn(
-            'Discovery returned 0 detectors; retrying in case this is a transient empty cloud response.',
+          const message = (
+            'Discovery returned 0 detectors; retrying in case this is a transient empty cloud response.'
           )
+          if (quietEmptyRetry) {
+            this.log.debug(message)
+          } else {
+            this.log.warn(message)
+          }
           this.startDiagnostics()
         }
+        this.logEmptyDiscoveryStatus()
         this.scheduleDiscoveryRetry()
         return
       }
+
+      this.emptyDiscoveryActive = false
 
       for (const { device, locationId } of detectors) {
         this.registerDevice(device, locationId)
       }
 
-      this.pruneStaleAccessories(new Set(detectors.map(d => d.device.deviceID)))
+      this.pruneCorruptAccessories()
+      const discoveredIds = new Set(detectors.map(d => d.device.deviceID))
+      this.reconcileMissingDetectors(discoveredIds)
 
+      // Partial lists keep polling what we have and re-discover until missing
+      // detectors are confirmed gone (or they reappear).
+      if (this.pendingRemovalCounts.size > 0) {
+        this.discoveryAttempt = 0
+        await this.runPollCycle()
+        this.startPolling()
+        this.startDiagnostics()
+        this.scheduleDiscoveryRetry()
+        return
+      }
+
+      this.lastCloudDetectorCount = detectors.length
       this.discoveryAttempt = 0
       await this.runPollCycle()
       this.startPolling()
@@ -327,8 +378,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     const wait = backoffMs(this.discoveryAttempt, INITIAL_DISCOVERY_RETRY_MS, MAX_DISCOVERY_RETRY_MS)
     const message = `Retrying device discovery in ${Math.round(wait / 1000)}s (attempt ${this.discoveryAttempt})`
     // Keep the first few retries visible during an outage; after that demote so a
-    // genuinely empty account does not warn forever at the 5-minute cap.
-    if (this.discoveryAttempt <= 3) {
+    // long outage does not warn forever at the 5-minute cap.
+    if (this.discoveryAttempt <= EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS) {
       this.log.warn(message)
     } else {
       this.log.debug(message)
@@ -337,6 +388,18 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       this.discoveryTimer = undefined
       void this.discoverDevices()
     }, wait)
+  }
+
+  /**
+   * When empty-discovery retries go quiet, say so once so the log does not imply
+   * discovery stopped. Further empty attempts stay at debug until recovery.
+   */
+  private logEmptyDiscoveryStatus(): void {
+    if (this.discoveryAttempt !== EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS) {
+      return
+    }
+    const waitSec = Math.round(MAX_DISCOVERY_RETRY_MS / 1000)
+    this.log.info(`Retrying discovery every ${waitSec}s (next message upon recovery)`)
   }
 
   private registerDevice(device: WaterLeakDetector, locationId: number): void {
@@ -393,10 +456,19 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
 
   /** Count cached accessories that look like real detectors (have a deviceID). */
   private countCachedDetectors(): number {
-    return this.accessories.filter((accessory) => {
+    return this.cachedDetectorIds().length
+  }
+
+  /** Device IDs present on currently cached accessories. */
+  private cachedDetectorIds(): string[] {
+    const ids: string[] = []
+    for (const accessory of this.accessories) {
       const id = (accessory.context.device as WaterLeakDetector | undefined)?.deviceID
-      return id !== undefined && id !== ''
-    }).length
+      if (id !== undefined && id !== '') {
+        ids.push(id)
+      }
+    }
+    return ids
   }
 
   /**
@@ -427,18 +499,38 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     )
   }
 
-  /** Unregister cached accessories that are no longer present in the account. */
-  private pruneStaleAccessories(currentDeviceIds: Set<string>): void {
-    this.unregisterAccessories(
-      this.accessories.filter((accessory) => {
-        const id = (accessory.context.device as WaterLeakDetector | undefined)?.deviceID
-        // Missing/empty deviceID is corrupt cache — prune it rather than keep it forever.
-        if (id === undefined || id === '') {
-          return true
-        }
-        return !currentDeviceIds.has(id)
-      }),
-    )
+  /**
+   * Track detectors missing from a non-empty discovery and only unregister after
+   * {@link STALE_REMOVAL_CONFIRMATIONS} consecutive omissions. A single partial
+   * cloud list must not wipe accessories.
+   */
+  private reconcileMissingDetectors(discoveredIds: Set<string>): void {
+    for (const id of discoveredIds) {
+      this.pendingRemovalCounts.delete(id)
+    }
+
+    const confirmed: PlatformAccessory[] = []
+    for (const accessory of this.accessories) {
+      const id = (accessory.context.device as WaterLeakDetector | undefined)?.deviceID
+      if (id === undefined || id === '' || discoveredIds.has(id)) {
+        continue
+      }
+
+      const count = (this.pendingRemovalCounts.get(id) ?? 0) + 1
+      this.pendingRemovalCounts.set(id, count)
+      if (count >= STALE_REMOVAL_CONFIRMATIONS) {
+        confirmed.push(accessory)
+        continue
+      }
+      this.log.warn(
+        `Detector ${accessory.displayName} missing from cloud `
+        + `(${count}/${STALE_REMOVAL_CONFIRMATIONS}); not removing yet`,
+      )
+    }
+
+    if (confirmed.length > 0) {
+      this.unregisterAccessories(confirmed)
+    }
   }
 
   private unregisterAccessories(stale: PlatformAccessory[]): void {
@@ -456,6 +548,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       if (device?.deviceID) {
         this.handlers.delete(device.deviceID)
         this.locationByDevice.delete(device.deviceID)
+        this.pendingRemovalCounts.delete(device.deviceID)
         // Forget the boot-summary marker so a detector that later returns to the
         // account is reported again rather than being silently re-added.
         this.bootSummaryLogged.delete(device.deviceID)
@@ -694,6 +787,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       tokenRefreshFailureActive: () =>
         this.lastRefreshFailureAt !== null
         && Date.now() - this.lastRefreshFailureAt < TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
+      emptyDiscoveryActive: () => this.emptyDiscoveryActive,
       pollingCadenceSec: () => this.pollingCadenceSeconds(),
     }
   }
