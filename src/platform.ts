@@ -117,6 +117,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   private lastCloudDetectorCount = 0
   /** Epoch ms of the last failed token refresh, for the degraded-health window. */
   private lastRefreshFailureAt: number | null = null
+  /**
+   * True while discovery is retrying after an empty cloud device list. Feeds
+   * diagnostics `emptyDiscovery` so heartbeats are not falsely "healthy".
+   */
+  private emptyDiscoveryActive = false
 
   constructor(
     public readonly log: Logging,
@@ -259,6 +264,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       // restart even after the cloud recovers. Keep/restore what we can and retry.
       // Empty responses also must not count toward stale-removal confirmation.
       if (detectors.length === 0) {
+        this.emptyDiscoveryActive = true
         const cachedDetectorCount = this.countCachedDetectors()
         if (cachedDetectorCount > 0) {
           const message = (
@@ -294,6 +300,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         this.scheduleDiscoveryRetry()
         return
       }
+
+      this.emptyDiscoveryActive = false
 
       for (const { device, locationId } of detectors) {
         this.registerDevice(device, locationId)
@@ -779,6 +787,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       tokenRefreshFailureActive: () =>
         this.lastRefreshFailureAt !== null
         && Date.now() - this.lastRefreshFailureAt < TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
+      emptyDiscoveryActive: () => this.emptyDiscoveryActive,
       pollingCadenceSec: () => this.pollingCadenceSeconds(),
     }
   }

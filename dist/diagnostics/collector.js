@@ -15,7 +15,9 @@
  *
  * This is the polling-only Resideo variant of the myleviton collector: there is
  * no WebSocket, rate limiter, or cache. The circuit breaker is included so
- * sustained API outages surface as `circuitBreakerOpen` in the health rollup.
+ * sustained API outages surface as `circuitBreakerOpen` in the health rollup,
+ * and an empty locations payload during discovery surfaces as `emptyDiscovery`
+ * (HTTP 200 with zero detectors does not trip the breaker).
  * It only ever reads in-memory state via the supplied `readers`; it never
  * performs any network I/O.
  */
@@ -133,7 +135,8 @@ class DiagnosticsCollector {
      * Classify current health from live readers. Health is degraded if any of:
      * the circuit breaker is open; the recent API error rate is at or over
      * threshold with a minimum sample size; a token refresh is currently in its
-     * failure cooldown; or the last completed poll cycle failed every device
+     * failure cooldown; discovery is retrying after an empty cloud device list;
+     * or the last completed poll cycle failed every device
      * (`failed > 0 && ok === 0`).
      */
     rollup(readers) {
@@ -152,6 +155,11 @@ class DiagnosticsCollector {
         }
         if (readers.tokenRefreshFailureActive()) {
             reasons.push('tokenRefreshFailing');
+        }
+        // HTTP 200 with zero detectors does not trip the breaker, but the platform
+        // is still waiting on Resideo — surface that as degraded, not healthy.
+        if (readers.emptyDiscoveryActive()) {
+            reasons.push('emptyDiscovery');
         }
         // Degraded only when the last completed cycle attempted devices and every
         // one failed. A cycle that polled nothing (`ok === 0 && failed === 0`, e.g.

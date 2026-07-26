@@ -42,6 +42,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     private lastCloudDetectorCount;
     /** Epoch ms of the last failed token refresh, for the degraded-health window. */
     private lastRefreshFailureAt;
+    /**
+     * True while discovery is retrying after an empty cloud device list. Feeds
+     * diagnostics `emptyDiscovery` so heartbeats are not falsely "healthy".
+     */
+    private emptyDiscoveryActive;
     constructor(log: Logging, config: ResideoPlatformConfig, api: API);
     /**
      * Record a device state transition (leak/offline/battery/freeze) for the
