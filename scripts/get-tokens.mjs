@@ -110,6 +110,7 @@ function captureAuthorizationCode(redirectUri, authorizeUrl) {
 
       const error = requestUrl.searchParams.get('error')
       const code = requestUrl.searchParams.get('code')
+      const state = requestUrl.searchParams.get('state')
       // The response page is intentionally STATIC: no request-derived value is
       // ever reflected into the HTML (which would be an XSS vector). Any error
       // detail is surfaced on the terminal via the rejected promise instead.
@@ -135,7 +136,7 @@ function captureAuthorizationCode(redirectUri, authorizeUrl) {
         return
       }
       finish(true)
-      resolvePromise(code)
+      resolvePromise({ code, state })
     })
 
     server.on('error', rejectPromise)
@@ -160,7 +161,7 @@ async function loadAuthModule() {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
-  const { buildAuthorizeUrl, exchangeAuthorizationCode } = await loadAuthModule()
+  const { buildAuthorizeUrl, exchangeAuthorizationCode, generateOAuthState } = await loadAuthModule()
 
   const redirectUri = args['redirect-uri'] || process.env.RESIDEO_REDIRECT_URI || DEFAULT_REDIRECT_URI
   let consumerKey = args.key || process.env.RESIDEO_CONSUMER_KEY || ''
@@ -173,12 +174,16 @@ async function main() {
     throw new Error('Both a Consumer Key and Consumer Secret are required.')
   }
 
-  const authorizeUrl = buildAuthorizeUrl(consumerKey, redirectUri)
+  const oauthState = generateOAuthState()
+  const authorizeUrl = buildAuthorizeUrl(consumerKey, redirectUri, oauthState)
 
   stdout.write(`\nRedirect URI: ${redirectUri}\n`)
   stdout.write('This must exactly match the Callback URL registered on your Resideo app.\n')
 
-  const code = await captureAuthorizationCode(redirectUri, authorizeUrl)
+  const { code, state: returnedState } = await captureAuthorizationCode(redirectUri, authorizeUrl)
+  if (returnedState !== oauthState) {
+    throw new Error('OAuth state mismatch on the redirect — aborting token exchange. Try again.')
+  }
   stdout.write('\nAuthorization code received; exchanging for tokens...\n')
 
   const tokens = await exchangeAuthorizationCode({

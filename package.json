@@ -68,10 +68,11 @@
     "prepare": "npm run build",
     "prepublishOnly": "npm run clean && npm run build",
     "get-tokens": "node scripts/get-tokens.mjs",
+    "pretest": "npm run build",
     "test": "NODE_ENV=test jest --coverage",
     "test:watch": "NODE_ENV=test jest --watch",
-    "test:unit": "NODE_ENV=test jest --coverage --testPathPattern=tests/unit",
-    "test:integration": "NODE_ENV=test jest --testPathPattern=tests/integration --collectCoverage=false",
+    "test:unit": "npm run build && NODE_ENV=test jest --coverage --testPathPattern=tests/unit",
+    "test:integration": "npm run build && NODE_ENV=test jest --testPathPattern=tests/integration --collectCoverage=false",
     "lint": "eslint . --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
     "lint:fix": "eslint . --fix --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
   },

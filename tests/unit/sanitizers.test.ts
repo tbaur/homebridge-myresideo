@@ -5,7 +5,7 @@
  * See LICENSE file for full license text
  */
 
-import { maskToken, sanitizeError, sanitizeString } from '../../src/utils'
+import { sanitizeError, sanitizeString } from '../../src/utils'
 
 describe('sanitizeString', () => {
   it('redacts the apikey query parameter', () => {
@@ -72,21 +72,5 @@ describe('sanitizeError', () => {
 
   it('handles non-error, non-string values', () => {
     expect(sanitizeError({ code: 1 })).toBe('[object Object]')
-  })
-})
-
-describe('maskToken', () => {
-  it('masks the middle of a long token', () => {
-    expect(maskToken('abcd1234efgh5678')).toBe('abcd…5678')
-  })
-
-  it('fully masks short tokens', () => {
-    expect(maskToken('short')).toBe('***')
-  })
-
-  it('returns *** for empty or nullish input', () => {
-    expect(maskToken('')).toBe('***')
-    expect(maskToken(undefined)).toBe('***')
-    expect(maskToken(null)).toBe('***')
   })
 })

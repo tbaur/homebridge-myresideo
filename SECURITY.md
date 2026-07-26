@@ -25,7 +25,7 @@ This plugin implements:
 
 - **HTTPS only** - All API communication uses TLS to `https://api.honeywellhome.com`
 - **OAuth2, no password storage** - The plugin never sees or stores your Resideo password; it exchanges an authorization code for access/refresh tokens
-- **Token auto-refresh and rotation** - Access tokens are refreshed before expiry and on `401`; rotated refresh tokens are persisted back to the Homebridge config
+- **Token auto-refresh and rotation** - Access tokens are refreshed before expiry and on `401`; after each successful refresh the current refresh and access tokens are persisted back to the Homebridge config
 - **Secret redaction in logs** - The `apikey` query parameter, bearer tokens, and `Authorization` headers are masked; errors are sanitized before logging
 - **Input validation** - All configuration inputs are validated at startup; invalid config fails fast with a clear message
 - **Request timeouts** - All API calls have bounded timeouts to avoid hanging the event loop
@@ -41,7 +41,7 @@ This plugin implements:
 ## Token & Credential Handling
 
 - The `consumerKey` (API key), `consumerSecret`, and tokens are read from the Homebridge platform config. Homebridge stores this config in plain text on the host, so host hardening is the primary mitigation.
-- Refresh-token rotation is handled automatically: when Resideo returns a new refresh token, the plugin writes it back to `config.json` so the next restart uses the current token.
+- Token persistence is handled automatically: after every successful refresh, the plugin writes the current refresh and access tokens back to `config.json` so the next restart uses them.
 - No credentials, tokens, or personally identifying information are written to logs.
 
 ## Response Timeline

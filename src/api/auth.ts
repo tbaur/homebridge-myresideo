@@ -11,18 +11,21 @@
  *   - uses a config-supplied access token optimistically once, then refreshes;
  *   - refreshes proactively, a buffer before expiry, so polls never race expiry;
  *   - collapses concurrent refreshes into a single in-flight request;
- *   - retries transient (network/timeout) refresh failures with backoff;
+ *   - retries transient (network/timeout/5xx/429) refresh failures with backoff;
  *   - distinguishes an invalid refresh token from rejected API credentials;
- *   - persists the rotated refresh token via {@link TokenManagerOptions.onRefreshToken}.
+ *   - persists refresh + access tokens via {@link TokenManagerOptions.onRefreshToken}
+ *     after every successful refresh (so a restart can reuse a fresh access token).
  */
 
 import { Buffer } from 'node:buffer'
+import { randomBytes } from 'node:crypto'
 import { request as httpsRequest } from 'node:https'
 
 import {
   ApiParseError,
   ConfigurationError,
   NetworkError,
+  RateLimitError,
   RefreshTokenInvalidError,
   TimeoutError,
   ValidationError,
@@ -38,7 +41,7 @@ import {
   TOKEN_URL,
 } from '../settings'
 import type { PluginLogger, TokenResponse } from '../types'
-import { backoffMs, delay } from '../utils/backoff'
+import { backoffMs, delay, parseRetryAfterMs } from '../utils/backoff'
 
 /** Minimal logger surface; any subset of methods may be provided. */
 export type AuthLogger = PluginLogger
@@ -49,8 +52,11 @@ export interface TokenManagerOptions {
   refreshToken: string
   /** Optional starting access token (e.g. restored from config). */
   accessToken?: string
-  /** Invoked whenever the API rotates the refresh token, so it can be persisted. */
-  onRefreshToken?: (newRefreshToken: string) => Promise<void> | void
+  /**
+   * Invoked after every successful refresh so tokens can be persisted. Always
+   * includes the current refresh token (rotated or not) and the new access token.
+   */
+  onRefreshToken?: (tokens: { refreshToken: string, accessToken: string }) => Promise<void> | void
   /** Optional diagnostics hook invoked after every successful token refresh. */
   onRefreshSuccess?: () => void
   /** Optional diagnostics hook invoked when a refresh ultimately fails. */
@@ -83,7 +89,7 @@ export class TokenManager {
 
   private readonly consumerKey: string
   private readonly consumerSecret: string
-  private readonly onRefreshToken?: (token: string) => Promise<void> | void
+  private readonly onRefreshToken?: (tokens: { refreshToken: string, accessToken: string }) => Promise<void> | void
   private readonly onRefreshSuccess?: () => void
   private readonly onRefreshFailure?: () => void
   private readonly logger?: AuthLogger
@@ -175,8 +181,8 @@ export class TokenManager {
   }
 
   /**
-   * Execute the refresh, retrying transient (network/timeout) failures with
-   * exponential backoff. Auth/parse failures are surfaced immediately.
+   * Execute the refresh, retrying transient (network/timeout/5xx/429) failures
+   * with exponential backoff. Auth/parse failures are surfaced immediately.
    */
   private async performRefresh(formBody: string, basicAuth: string): Promise<string> {
     let lastError: unknown
@@ -187,20 +193,26 @@ export class TokenManager {
         this.lastRefreshAt = this.now()
         if (token.refresh_token && token.refresh_token !== this.refreshToken) {
           this.refreshToken = token.refresh_token
-          await this.onRefreshToken?.(token.refresh_token)
-          this.logger?.debug?.('Refresh token rotated and persisted')
+          this.logger?.debug?.('Refresh token rotated')
         }
+        await this.onRefreshToken?.({
+          refreshToken: this.refreshToken,
+          accessToken: this.accessToken as string,
+        })
         this.onRefreshSuccess?.()
         return this.accessToken as string
       } catch (err) {
-        const isRetryable = err instanceof NetworkError || err instanceof TimeoutError
+        const isRetryable = err instanceof NetworkError
+          || err instanceof TimeoutError
+          || err instanceof RateLimitError
         if (!isRetryable || attempt === this.maxRefreshAttempts) {
           this.onRefreshFailure?.()
           throw err
         }
         lastError = err
         this.logger?.debug?.(`Token refresh attempt ${attempt} failed (retryable); backing off`)
-        await delay(backoffMs(attempt))
+        const waitMs = err instanceof RateLimitError ? err.retryAfterMs : undefined
+        await delay(waitMs ?? backoffMs(attempt))
       }
     }
     this.onRefreshFailure?.()
@@ -238,12 +250,24 @@ export interface AuthorizationCodeExchangeOptions {
 }
 
 /**
+ * Generate an opaque OAuth2 `state` value for CSRF protection on the authorize
+ * redirect. Callers must round-trip the same value through the redirect and
+ * verify it with {@link extractAuthorizationCode}.
+ */
+export function generateOAuthState(): string {
+  // 128 bits of CSPRNG entropy, URL-safe (Node `crypto.randomBytes`).
+  return randomBytes(16).toString('base64url')
+}
+
+/**
  * Build the browser authorize URL for the OAuth2 Authorization Code flow.
  *
  * The user opens this URL, signs in, and approves access; Resideo then redirects
- * to `redirectUri?code=...`. Used by the `get-tokens` helper script.
+ * to `redirectUri?code=...&state=...`. Used by the account-linking UI and the
+ * `get-tokens` helper script. Pass {@link generateOAuthState} (or any opaque
+ * value) as `state` and verify it on the redirect.
  */
-export function buildAuthorizeUrl(consumerKey: string, redirectUri: string): string {
+export function buildAuthorizeUrl(consumerKey: string, redirectUri: string, state?: string): string {
   if (!consumerKey) {
     throw new ValidationError('consumerKey is required to build the authorize URL')
   }
@@ -254,6 +278,9 @@ export function buildAuthorizeUrl(consumerKey: string, redirectUri: string): str
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('client_id', consumerKey)
   url.searchParams.set('redirect_uri', redirectUri)
+  if (state) {
+    url.searchParams.set('state', state)
+  }
   return url.toString()
 }
 
@@ -263,11 +290,16 @@ export function buildAuthorizeUrl(consumerKey: string, redirectUri: string): str
  * full redirect URL (e.g. `http://localhost:8581/oauth/callback?code=...&...`),
  * so the account-linking UI can be forgiving about exactly what is pasted.
  *
- * Throws a {@link ValidationError} when no usable code is present, or when the
- * URL carries an OAuth `error` instead of a code. The pasted value (which may
- * contain a code) is never echoed back in the thrown message.
+ * When `expectedState` is provided, a redirect URL must carry a matching
+ * `state` (CSRF protection). A bare code cannot prove state, so it is rejected
+ * in that mode — paste the full redirect URL instead.
+ *
+ * Throws a {@link ValidationError} when no usable code is present, when the
+ * URL carries an OAuth `error` instead of a code, or when `state` does not
+ * match. The pasted value (which may contain a code) is never echoed back in
+ * the thrown message.
  */
-export function extractAuthorizationCode(input: string): string {
+export function extractAuthorizationCode(input: string, expectedState?: string): string {
   const trimmed = typeof input === 'string' ? input.trim() : ''
   if (!trimmed) {
     throw new ValidationError('Paste the authorization code, or the full redirect URL, to finish linking.')
@@ -284,11 +316,25 @@ export function extractAuthorizationCode(input: string): string {
     if (oauthError) {
       throw new ValidationError(`Authorization was denied or failed (${oauthError}). Try linking again.`)
     }
+    if (expectedState !== undefined) {
+      const returnedState = parsed.searchParams.get('state')
+      if (!returnedState || returnedState !== expectedState) {
+        throw new ValidationError(
+          'The redirect URL state did not match this linking attempt. Start sign-in again and paste the full redirect URL.',
+        )
+      }
+    }
     const code = parsed.searchParams.get('code')
     if (!code) {
       throw new ValidationError('The pasted redirect URL did not contain an authorization code.')
     }
     return code
+  }
+
+  if (expectedState !== undefined) {
+    throw new ValidationError(
+      'Paste the full redirect URL (not just the code) so the linking state can be verified.',
+    )
   }
 
   // A bare value: reject anything with embedded whitespace, which means the
@@ -373,7 +419,7 @@ function defaultRequestToken(formBody: string, basicAuth: string): Promise<Token
           const raw = Buffer.concat(chunks).toString('utf8')
           const status = res.statusCode ?? 0
           if (status >= 400) {
-            reject(mapTokenError(status, raw))
+            reject(mapTokenError(status, raw, res.headers['retry-after']))
             return
           }
           try {
@@ -400,7 +446,11 @@ function defaultRequestToken(formBody: string, basicAuth: string): Promise<Token
  * credentials (user must fix the API key/secret). The raw response body is NOT
  * embedded, to avoid leaking token material into logs.
  */
-function mapTokenError(status: number, rawBody: string): Error {
+function mapTokenError(
+  status: number,
+  rawBody: string,
+  retryAfterHeader?: string | string[],
+): Error {
   const oauthError = parseOAuthError(rawBody)
 
   if (oauthError === 'invalid_grant') {
@@ -410,6 +460,11 @@ function mapTokenError(status: number, rawBody: string): Error {
     return new ConfigurationError(
       'Resideo rejected the API credentials. Verify the Consumer Key and Secret in the plugin settings.',
     )
+  }
+  if (status === 429) {
+    return new RateLimitError(`Token endpoint rate limited (HTTP ${status})`, {
+      retryAfterMs: parseRetryAfterMs(retryAfterHeader),
+    })
   }
   if (status >= 500) {
     return new NetworkError(`Token endpoint returned status ${status}`)

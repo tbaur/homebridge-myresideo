@@ -91,7 +91,7 @@ class ResideoPlatform {
             refreshToken: config.credentials.refreshToken,
             accessToken: config.credentials.accessToken,
             logger: this.log,
-            onRefreshToken: token => this.persistRefreshToken(token),
+            onRefreshToken: tokens => this.persistTokens(tokens),
             onRefreshSuccess: () => {
                 this.lastRefreshFailureAt = null;
                 this.diagnostics?.tokenRefresh();
@@ -106,6 +106,7 @@ class ResideoPlatform {
             logger: this.log,
             metrics: sample => this.diagnostics?.apiRequest(sample.durationMs, sample.ok),
             onRetry: () => this.diagnostics?.retry(),
+            onCircuitOpen: () => this.diagnostics?.breakerTrip(),
         });
         this.api.on('didFinishLaunching', () => {
             void this.discoverDevices();
@@ -192,16 +193,17 @@ class ResideoPlatform {
      * looping the capped backoff forever and spamming the log. This covers bad
      * credentials/re-link conditions ({@link AuthenticationError} and its
      * {@link RefreshTokenInvalidError} subclass, {@link ConfigurationError}), a
-     * permissions problem ({@link ForbiddenError}), an unparseable/unexpected
-     * payload ({@link ApiParseError}), and any non-retryable HTTP response such
-     * as a 404 ({@link ApiResponseError} with `isRetryable === false`). Transient
-     * 5xx/network/timeout errors remain retryable.
+     * permissions problem ({@link ForbiddenError}), and any non-retryable HTTP
+     * response such as a 404 ({@link ApiResponseError} with `isRetryable === false`).
+     * Transient 5xx/network/timeout errors remain retryable. A one-off
+     * {@link ApiParseError} (e.g. HTML/WAF body) is also retried — permanent
+     * schema breaks will keep failing until the cloud recovers or the user
+     * intervenes, but will not leave the plugin inert after a single blip.
      */
     isFatal(err) {
         if (err instanceof errors_1.AuthenticationError
             || err instanceof errors_1.ConfigurationError
-            || err instanceof errors_1.ForbiddenError
-            || err instanceof errors_1.ApiParseError) {
+            || err instanceof errors_1.ForbiddenError) {
             return true;
         }
         if (err instanceof errors_1.ApiResponseError) {
@@ -218,7 +220,9 @@ class ResideoPlatform {
             return;
         }
         this.discoveryAttempt++;
-        const wait = Math.min(settings_1.INITIAL_DISCOVERY_RETRY_MS * 2 ** (this.discoveryAttempt - 1), settings_1.MAX_DISCOVERY_RETRY_MS);
+        // Same jittered exponential backoff as API/token retries so recovering
+        // instances do not align on identical wait times.
+        const wait = (0, utils_1.backoffMs)(this.discoveryAttempt, settings_1.INITIAL_DISCOVERY_RETRY_MS, settings_1.MAX_DISCOVERY_RETRY_MS);
         this.log.warn(`Retrying device discovery in ${Math.round(wait / 1000)}s (attempt ${this.discoveryAttempt})`);
         this.discoveryTimer = setTimeout(() => {
             void this.discoverDevices();
@@ -274,7 +278,11 @@ class ResideoPlatform {
     pruneStaleAccessories(currentDeviceIds) {
         const stale = this.accessories.filter((accessory) => {
             const id = accessory.context.device?.deviceID;
-            return id !== undefined && id !== '' && !currentDeviceIds.has(id);
+            // Missing/empty deviceID is corrupt cache — prune it rather than keep it forever.
+            if (id === undefined || id === '') {
+                return true;
+            }
+            return !currentDeviceIds.has(id);
         });
         if (stale.length === 0) {
             return;
@@ -292,8 +300,11 @@ class ResideoPlatform {
                 // Forget the boot-summary marker so a detector that later returns to the
                 // account is reported again rather than being silently re-added.
                 this.bootSummaryLogged.delete(device.deviceID);
+                this.log.info(`Removed stale water leak detector: ${accessory.displayName}`);
             }
-            this.log.info(`Removed stale water leak detector: ${accessory.displayName}`);
+            else {
+                this.log.warn(`Removed cached accessory without a deviceID: ${accessory.displayName}`);
+            }
         }
     }
     optionsForDevice(deviceID) {
@@ -349,8 +360,14 @@ class ResideoPlatform {
         let nextIndex = 0;
         let ok = 0;
         let failed = 0;
+        // One actionable auth/config error log per cycle so concurrent workers do
+        // not spam the same re-link message, while later cycles still surface it.
+        let loggedAuthFailureThisCycle = false;
         const worker = async () => {
             while (nextIndex < deviceIds.length) {
+                if (this.stopped) {
+                    return;
+                }
                 const deviceID = deviceIds[nextIndex++];
                 const locationId = this.locationByDevice.get(deviceID);
                 const handler = this.handlers.get(deviceID);
@@ -363,12 +380,26 @@ class ResideoPlatform {
                 const startedAt = Date.now();
                 try {
                     const device = await this.client.getWaterLeakDetector(deviceID, locationId);
+                    if (this.stopped) {
+                        return;
+                    }
                     handler.updateStatus(device, Date.now() - startedAt);
                     ok++;
                 }
                 catch (err) {
+                    // Preserve HomeKit state on API failure. Transient / open-breaker
+                    // misses stay at debug (myleviton pattern); circuit-breaker transitions
+                    // are the operator-visible outage signal. Auth/config failures still
+                    // surface once per cycle via handleError so re-link signaling is not
+                    // demoted to debug after discovery has already succeeded.
                     failed++;
-                    this.handleError(`poll ${deviceID}`, err);
+                    if (this.isActionablePollError(err) && !loggedAuthFailureThisCycle) {
+                        loggedAuthFailureThisCycle = true;
+                        this.handleError('poll', err);
+                    }
+                    else {
+                        this.log.debug(`Polling skipped for ${handler.displayName}: ${(0, utils_1.sanitizeError)(err)}`);
+                    }
                 }
             }
         };
@@ -384,7 +415,27 @@ class ResideoPlatform {
             this.log.error(`[${context}] ${err.message}`);
             return;
         }
+        if (err instanceof errors_1.ForbiddenError) {
+            this.log.error(`[${context}] Resideo refused access (HTTP 403). Confirm this developer app is authorized `
+                + 'for the account and that the linked user can still access the detectors.');
+            return;
+        }
+        if (err instanceof errors_1.AuthenticationError) {
+            this.log.error(`[${context}] Authentication failed. Re-link your account in the plugin settings, or verify `
+                + 'the Consumer Key and Secret.');
+            return;
+        }
         this.log.error(`[${context}] ${(0, utils_1.sanitizeError)(err)}`);
+    }
+    /**
+     * Errors that must stay visible at error level during polling (re-link /
+     * credentials / permissions). Transient API outages are not included.
+     */
+    isActionablePollError(err) {
+        return (err instanceof errors_1.RefreshTokenInvalidError
+            || err instanceof errors_1.AuthenticationError
+            || err instanceof errors_1.ForbiddenError
+            || err instanceof errors_1.ConfigurationError);
     }
     /** Diagnostics heartbeat interval in milliseconds (0 when disabled). */
     diagnosticsIntervalMs() {
@@ -463,6 +514,7 @@ class ResideoPlatform {
      */
     buildDiagnosticsReaders() {
         return {
+            clientStatus: () => this.client?.getStatus() ?? { circuitBreaker: { state: 'CLOSED' } },
             devices: () => this.collectDeviceGauges(),
             tokenExpiresInSec: () => this.tokenManager?.getStatus().expiresInSec ?? null,
             tokenLastRefreshAt: () => this.tokenManager?.getStatus().lastRefreshAt ?? null,
@@ -514,15 +566,19 @@ class ResideoPlatform {
         }
     }
     /**
-     * Persist a rotated refresh token back into config.json so it survives a
-     * Homebridge restart. Writes atomically (temp file + rename) so a crash
-     * mid-write cannot corrupt config. A failure here is serious — the rotated
-     * token is only in memory, so the next restart will read the now-invalidated
-     * old token and require re-linking — so it is logged at error level with that
-     * consequence spelled out, but never thrown (rotation already succeeded).
+     * Persist the current refresh + access tokens back into config.json so they
+     * survive a Homebridge restart. Rewrites the whole config file as pretty-printed
+     * JSON (4-space indent) for the matching platform block — other platforms'
+     * values are preserved, but key order/formatting for the file may change.
+     * Writes atomically (temp file + rename; on Windows, rename-aside then promote
+     * with restore-on-failure) so a crash cannot leave a half-written config and
+     * never deletes the live config before the new file is in place. A failure
+     * here is serious — tokens may only be in memory — so it is logged at error
+     * with that consequence spelled out, but never thrown (refresh already succeeded).
      */
-    async persistRefreshToken(newRefreshToken) {
-        this.config.credentials.refreshToken = newRefreshToken;
+    async persistTokens(tokens) {
+        this.config.credentials.refreshToken = tokens.refreshToken;
+        this.config.credentials.accessToken = tokens.accessToken;
         try {
             const configPath = this.api.user.configPath();
             const raw = await node_fs_1.promises.readFile(configPath, 'utf8');
@@ -530,26 +586,61 @@ class ResideoPlatform {
             const blocks = parsed.platforms?.filter(p => p.platform === settings_1.PLATFORM_NAME) ?? [];
             const block = this.selectConfigBlock(blocks);
             if (!block?.credentials) {
-                this.log.error('Could not persist the rotated refresh token: this platform block was not found in config.json. '
+                this.log.error('Could not persist tokens: this platform block was not found in config.json. '
                     + 'A future Homebridge restart may require re-linking your account.');
                 return;
             }
-            block.credentials.refreshToken = newRefreshToken;
+            block.credentials.refreshToken = tokens.refreshToken;
+            block.credentials.accessToken = tokens.accessToken;
             const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
             await node_fs_1.promises.writeFile(tempPath, JSON.stringify(parsed, null, 4), 'utf8');
-            await node_fs_1.promises.rename(tempPath, configPath);
-            this.log.debug(`Persisted rotated refresh token to config.json (${(0, utils_1.maskToken)(newRefreshToken)})`);
+            await this.replaceConfigFile(tempPath, configPath);
+            this.log.debug('Persisted refresh and access tokens to config.json');
         }
         catch (err) {
-            this.log.error(`Could not persist the rotated refresh token: ${(0, utils_1.sanitizeError)(err)}. `
+            this.log.error(`Could not persist tokens: ${(0, utils_1.sanitizeError)(err)}. `
                 + 'A future Homebridge restart may require re-linking your account.');
         }
     }
     /**
+     * Replace `configPath` with the contents already written to `tempPath`.
+     * Prefer a direct rename (atomic on POSIX). When the platform refuses to
+     * overwrite (typical on Windows), move the live file aside, promote the
+     * temp file, and restore the backup if promotion fails — never `unlink` the
+     * live config before the new file is durable.
+     */
+    async replaceConfigFile(tempPath, configPath) {
+        try {
+            await node_fs_1.promises.rename(tempPath, configPath);
+            return;
+        }
+        catch (renameErr) {
+            const code = renameErr.code;
+            if (code !== 'EEXIST' && code !== 'EPERM' && code !== 'EACCES') {
+                throw renameErr;
+            }
+        }
+        const backupPath = `${configPath}.${process.pid}.${Date.now()}.bak`;
+        await node_fs_1.promises.rename(configPath, backupPath);
+        try {
+            await node_fs_1.promises.rename(tempPath, configPath);
+        }
+        catch (promoteErr) {
+            try {
+                await node_fs_1.promises.rename(backupPath, configPath);
+            }
+            catch (restoreErr) {
+                throw new Error(`Failed to promote new config and restore backup: ${(0, utils_1.sanitizeError)(promoteErr)}; `
+                    + `restore: ${(0, utils_1.sanitizeError)(restoreErr)}`);
+            }
+            throw promoteErr;
+        }
+        await node_fs_1.promises.rm(backupPath, { force: true });
+    }
+    /**
      * Choose which platform block to write the rotated token into. With a single
      * block the choice is unambiguous; with several, only a unique name match is
-     * safe. Refuse to guess when multiple blocks share this instance's name,
-     * rather than risk writing the token into the wrong instance's credentials.
+     * safe. Refuse to guess when names collide or none match this instance.
      */
     selectConfigBlock(blocks) {
         if (blocks.length <= 1) {
@@ -559,8 +650,13 @@ class ResideoPlatform {
         if (named.length === 1) {
             return named[0];
         }
-        this.log.error('Multiple MyResideo platform blocks share the same name; cannot safely persist the rotated '
-            + 'refresh token. Give each platform block a unique "name" in config.json.');
+        if (named.length === 0) {
+            this.log.error('Could not persist tokens: no MyResideo platform block matches this '
+                + `instance name ("${this.config.name ?? ''}"). Ensure the "name" in config.json matches.`);
+            return undefined;
+        }
+        this.log.error('Multiple MyResideo platform blocks share the same name; cannot safely persist tokens. '
+            + 'Give each platform block a unique "name" in config.json.');
         return undefined;
     }
 }
@@ -588,7 +684,7 @@ function formatReasons(reasons) {
 }
 /** Build the concise human-readable summary line for a diagnostics report. */
 function formatDiagnosticLine(report) {
-    const { lifecycle, devices, polling, token, api, activity } = report;
+    const { lifecycle, devices, circuitBreaker, polling, token, api, activity } = report;
     const reasonText = formatReasons(lifecycle.reasons);
     const pollDuration = polling.lastDurationMs === null ? 'n/a' : `${polling.lastDurationMs}ms`;
     const tokenExp = token.expiresInSec === null ? 'n/a' : `${token.expiresInSec}s`;
@@ -596,10 +692,12 @@ function formatDiagnosticLine(report) {
     // `api.requests`/`api.errors` would merely restate the poll counts plus the
     // retried transient failures. The human line therefore reports the poll
     // outcome once, surfaces the retry count (the only extra signal `err` carried),
-    // and keeps only the latency percentiles from the API metrics. Raw request and
-    // error totals remain in the structured-JSON report for log parsers.
+    // keeps only the latency percentiles from the API metrics, and includes the
+    // circuit-breaker state so outages are visible without enabling debug logs.
+    // Raw request/error totals remain in the structured-JSON report for parsers.
     return (`${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText} | `
         + `detectors ${devices.online}/${devices.total} online (${devices.leak} leak) | `
+        + `breaker ${circuitBreaker.state} | `
         + `poll ${pollDuration} ok ${polling.ok} failed ${polling.failed} retried ${activity.retries} | `
         + `latency p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms | `
         + `token exp ${tokenExp}`);

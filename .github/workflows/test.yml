@@ -34,9 +34,16 @@ jobs:
     - name: Build TypeScript
       run: npm run build
 
-    # dist/ is committed (so git installs work); fail if it drifted from src/.
+    # dist/ is committed (so git installs work); fail if it drifted from src/
+    # or if build produced untracked files under dist/ that were not committed.
     - name: Verify committed dist is in sync with src
-      run: git diff --exit-code -- dist
+      run: |
+        if [ -n "$(git status --porcelain -- dist)" ]; then
+          echo "dist/ is dirty or has untracked files after build:"
+          git status --porcelain -- dist
+          exit 1
+        fi
+        git diff --exit-code -- dist
 
     - name: Run linter
       run: npm run lint

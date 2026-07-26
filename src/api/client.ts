@@ -8,16 +8,19 @@
  *
  * Every API call requires BOTH an OAuth2 bearer token (Authorization header)
  * and the developer `apikey` query parameter. This client injects both,
- * enforces a timeout, retries transient failures with backoff, and performs a
- * single token-refresh-and-retry on 401.
+ * enforces a timeout, retries transient failures with backoff, performs a
+ * single token-refresh-and-retry on 401, and gates requests through a circuit
+ * breaker so sustained Resideo outages fail fast instead of hammering the API.
  */
 
 import { Buffer } from 'node:buffer'
 import { request as httpsRequest } from 'node:https'
 
 import {
-  AuthenticationError,
   ApiParseError,
+  ApiResponseError,
+  AuthenticationError,
+  CircuitBreakerError,
   createApiError,
   NetworkError,
   RateLimitError,
@@ -29,12 +32,18 @@ import {
   LOCATIONS_URL,
   MAX_API_RETRY_ATTEMPTS,
   MAX_RESPONSE_BODY_BYTES,
-  MAX_RETRY_AFTER_MS,
   WATER_LEAK_DETECTOR_TYPE,
 } from '../settings'
 import type { PluginLogger, ResideoLocation, WaterLeakDetector } from '../types'
-import { backoffMs, delay } from '../utils/backoff'
+import { backoffMs, delay, parseRetryAfterMs } from '../utils/backoff'
 import type { TokenManager } from './auth'
+import {
+  CircuitBreaker,
+  CircuitState,
+  DEFAULT_CIRCUIT_BREAKER_CONFIG,
+  type CircuitBreakerConfig,
+  type CircuitBreakerStatus,
+} from './circuit-breaker'
 
 /** Minimal logger surface; any subset of methods may be provided. */
 export type ClientLogger = PluginLogger
@@ -53,23 +62,55 @@ export interface RequestMetric {
   ok: boolean
 }
 
+/** Subset of client status exposed to diagnostics. */
+export interface ClientStatus {
+  circuitBreaker: CircuitBreakerStatus
+}
+
 export interface ApiClientOptions {
   tokenManager: TokenManager
   /** Developer API Key, sent as the required `apikey` query parameter. */
   apikey: string
   timeoutMs?: number
   maxRetryAttempts?: number
+  /** Optional overrides for the per-client circuit breaker (primarily for tests). */
+  circuitBreaker?: Partial<CircuitBreakerConfig>
   logger?: ClientLogger
   /** Injectable transport (primarily for tests). */
   transport?: (url: string, accessToken: string, timeoutMs: number) => Promise<RawResponse>
   /**
    * Optional diagnostics hook invoked once per networked transport attempt with
    * its wall-clock duration and success flag. Never invoked for pre-flight
-   * failures (e.g. a token refresh that fails before any request is sent).
+   * failures (e.g. circuit breaker open, or a token refresh that fails before
+   * any request is sent).
    */
   metrics?: (sample: RequestMetric) => void
   /** Optional diagnostics hook invoked each time a request attempt is retried. */
   onRetry?: () => void
+  /**
+   * Optional hook fired whenever the circuit breaker transitions into the open
+   * state, so observers can count trips at the moment they happen.
+   */
+  onCircuitOpen?: () => void
+}
+
+/**
+ * Errors that should count against the circuit breaker: server-side and
+ * connectivity problems. Client errors (4xx) reflect the request, not service
+ * health, and must not trip the breaker.
+ */
+function isCircuitBreakerFailure(error: unknown): boolean {
+  if (
+    error instanceof NetworkError
+    || error instanceof TimeoutError
+    || error instanceof ApiParseError
+  ) {
+    return true
+  }
+  if (error instanceof ApiResponseError) {
+    return error.httpStatus >= 500 && error.httpStatus < 600
+  }
+  return false
 }
 
 export class ResideoApiClient {
@@ -81,6 +122,8 @@ export class ResideoApiClient {
   private readonly transport: (url: string, accessToken: string, timeoutMs: number) => Promise<RawResponse>
   private readonly metrics?: (sample: RequestMetric) => void
   private readonly onRetry?: () => void
+  private readonly onCircuitOpen?: () => void
+  private readonly circuitBreaker: CircuitBreaker
 
   constructor(options: ApiClientOptions) {
     this.tokenManager = options.tokenManager
@@ -91,18 +134,26 @@ export class ResideoApiClient {
     this.transport = options.transport ?? defaultTransport
     this.metrics = options.metrics
     this.onRetry = options.onRetry
+    this.onCircuitOpen = options.onCircuitOpen
+    this.circuitBreaker = new CircuitBreaker({
+      ...options.circuitBreaker,
+      onStateChange: (from, to) => {
+        options.circuitBreaker?.onStateChange?.(from, to)
+        this.logCircuitTransition(from, to)
+      },
+    })
   }
 
   /** GET all locations (with their embedded devices) for the authenticated user. */
   async getLocations(): Promise<ResideoLocation[]> {
-    const locations = await this.get<unknown>(LOCATIONS_URL, {})
-    // The locations endpoint must return an array; anything else (an object,
-    // null, an error envelope) would otherwise blow up when the caller iterates
-    // it, so surface it as a typed, non-retryable parse error.
-    if (!Array.isArray(locations)) {
-      throw new ApiParseError('Locations response was not an array; the API returned an unexpected payload.')
-    }
-    return locations as ResideoLocation[]
+    // Validate the array shape inside get()'s success path (before recordSuccess)
+    // so a 200 non-array body counts as a breaker failure, not a success.
+    return this.get<ResideoLocation[]>(LOCATIONS_URL, {}, (parsed) => {
+      if (!Array.isArray(parsed)) {
+        throw new ApiParseError('Locations response was not an array; the API returned an unexpected payload.')
+      }
+      return parsed
+    })
   }
 
   /** GET a single water leak detector's current status. */
@@ -111,24 +162,89 @@ export class ResideoApiClient {
     return this.get<WaterLeakDetector>(url, { locationId: String(locationId) })
   }
 
+  /** Current resilience status (circuit breaker). */
+  getStatus(): ClientStatus {
+    return {
+      circuitBreaker: this.circuitBreaker.getStatus(),
+    }
+  }
+
+  /** Reset the circuit breaker (primarily for tests). */
+  resetCircuitBreaker(): void {
+    this.circuitBreaker.reset()
+  }
+
   /**
    * Perform an authenticated GET. Adds `apikey` plus any extra query params,
-   * retries transient failures, and refreshes the token once on a 401.
+   * gates through the circuit breaker, retries transient failures, and refreshes
+   * the token once on a 401.
+   *
+   * @param validate Optional post-parse check that runs before the attempt is
+   *   counted as a breaker success. Thrown errors are treated as request failures.
    */
-  async get<T>(baseUrl: string, params: Record<string, string>): Promise<T> {
+  async get<T>(
+    baseUrl: string,
+    params: Record<string, string>,
+    validate?: (parsed: unknown) => T,
+  ): Promise<T> {
     const url = this.buildUrl(baseUrl, params)
-    const { raw, durationMs } = await this.requestWithRetry(url)
-    // The successful (2xx) attempt's metric is recorded here, after parsing, so
-    // a 200 with an unparseable body is counted as a failure rather than masking
-    // a real error as success. Failed/retried attempts are recorded in
-    // timedTransport, giving exactly one metric per networked attempt.
+
+    // Gate once per logical request — never re-checked mid-retry — so a single
+    // call cannot race the breaker open/closed across attempts.
+    if (!this.circuitBreaker.canRequest()) {
+      const status = this.circuitBreaker.getStatus()
+      throw new CircuitBreakerError(
+        status.remainingResetTime ?? DEFAULT_CIRCUIT_BREAKER_CONFIG.resetTimeout,
+      )
+    }
+
+    if (this.circuitBreaker.state === CircuitState.HALF_OPEN) {
+      this.circuitBreaker.trackHalfOpenRequest()
+    }
+
     try {
-      const parsed = this.parseJson<T>(raw, url)
-      this.metrics?.({ durationMs, ok: true })
-      return parsed
-    } catch (err) {
-      this.metrics?.({ durationMs, ok: false })
-      throw err
+      const { raw, durationMs } = await this.requestWithRetry(url)
+      // Parse (and optional validate) after the transport succeeds so a 200 with
+      // an unexpected body is counted as a breaker failure, not a success.
+      try {
+        const parsed = this.parseJson<unknown>(raw, url)
+        const value = validate ? validate(parsed) : parsed as T
+        this.metrics?.({ durationMs, ok: true })
+        this.circuitBreaker.recordSuccess()
+        return value
+      } catch (err) {
+        this.metrics?.({ durationMs, ok: false })
+        throw err
+      }
+    } catch (error) {
+      // A single failure is recorded per logical request after retries are
+      // exhausted, so retries don't artificially accelerate the breaker.
+      // While HALF_OPEN, ANY terminal outcome must release the probe slot
+      // (via recordFailure -> OPEN). Otherwise an auth/4xx/429 probe failure
+      // would leave halfOpenRequests capped and wedge the breaker forever,
+      // suppressing later poll traffic and re-link signaling.
+      if (
+        this.circuitBreaker.state === CircuitState.HALF_OPEN
+        || isCircuitBreakerFailure(error)
+      ) {
+        this.circuitBreaker.recordFailure()
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Surface circuit-breaker transitions so operators can see when the Resideo
+   * API is being treated as unavailable and when it recovers. OPEN is warn;
+   * HALF_OPEN (probe) and CLOSED (recovery) are info.
+   */
+  private logCircuitTransition(from: CircuitState, to: CircuitState): void {
+    const message = `Circuit breaker ${from} -> ${to}`
+    if (to === CircuitState.OPEN) {
+      this.logger?.warn?.(message)
+      this.onCircuitOpen?.()
+    } else {
+      this.logger?.info?.(message)
     }
   }
 
@@ -157,14 +273,17 @@ export class ResideoApiClient {
           return { raw, durationMs }
         }
 
-        const error = createApiError(raw.status, `Request to ${redact(url)} failed (${raw.status})`)
+        const error = createApiError(raw.status, `API request failed: ${raw.status}`)
 
-        // One token refresh-and-retry on auth failure.
+        // One token refresh-and-retry on auth failure. Decrement `attempt` so
+        // the for-loop increment still grants a follow-up transport with the
+        // fresh token even when the 401 arrived on the final attempt budget.
         if (error instanceof AuthenticationError && !refreshedOnAuth) {
           refreshedOnAuth = true
           this.logger?.debug?.('Received 401; forcing token refresh and retrying')
           await this.tokenManager.forceRefresh()
           this.onRetry?.()
+          attempt--
           continue
         }
 
@@ -221,45 +340,17 @@ export class ResideoApiClient {
     try {
       return JSON.parse(raw.body) as T
     } catch (err) {
-      throw new ApiParseError(`Failed to parse response from ${redact(url)}`, { cause: err as Error })
+      throw new ApiParseError(`Failed to parse response from ${describeUrl(url)}`, { cause: err as Error })
     }
   }
 }
 
-/**
- * Parse an HTTP `Retry-After` header into milliseconds. Supports the
- * delta-seconds and HTTP-date forms, clamps to a sane maximum, and returns
- * `undefined` when the header is absent or unparseable (callers fall back to
- * exponential backoff).
- */
-function parseRetryAfterMs(header: string | string[] | undefined): number | undefined {
-  const value = Array.isArray(header) ? header[0] : header
-  if (!value) {
-    return undefined
-  }
-  const trimmed = value.trim()
-  const seconds = Number(trimmed)
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS)
-  }
-  const dateMs = Date.parse(trimmed)
-  if (!Number.isNaN(dateMs)) {
-    const deltaMs = dateMs - Date.now()
-    return Math.min(Math.max(deltaMs, 0), MAX_RETRY_AFTER_MS)
-  }
-  return undefined
-}
-
-/** Strip the apikey from a URL before logging. */
-function redact(url: string): string {
+/** Path-only URL description for error messages (never includes query/secrets). */
+function describeUrl(url: string): string {
   try {
-    const u = new URL(url)
-    if (u.searchParams.has('apikey')) {
-      u.searchParams.set('apikey', '***')
-    }
-    return u.toString()
+    return new URL(url).pathname
   } catch {
-    return url
+    return 'API'
   }
 }
 

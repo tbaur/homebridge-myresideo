@@ -17,6 +17,7 @@ import type { PlatformConfig } from 'homebridge'
  */
 export interface PluginLogger {
   debug?: (message: string) => void
+  info?: (message: string) => void
   warn?: (message: string) => void
   error?: (message: string) => void
 }
@@ -44,7 +45,7 @@ export interface LeakDetectorOptions {
   name?: string
   hideTemperatureSensor?: boolean
   hideHumiditySensor?: boolean
-  /** Expose a separate freeze (leak-style) sensor derived from temperature. */
+  /** Expose a separate freeze Contact Sensor derived from temperature. */
   enableFreezeSensor?: boolean
   /** Override the freeze threshold in Celsius for this device. */
   freezeThresholdCelsius?: number
@@ -190,7 +191,8 @@ export interface DeviceGauges {
 /**
  * One opt-in diagnostics report. Because the plugin is polling-only and exposes
  * read-only sensors, this is a reduced version of myleviton's snapshot: there is
- * no WebSocket, circuit breaker, rate limiter, or cache to report on.
+ * no WebSocket, rate limiter, or cache to report on. The circuit breaker is
+ * included because sustained Resideo outages trip it.
  */
 export interface DiagnosticsSnapshot {
   /** Channel identifier, e.g. `health`, `diagnostics.start`, `diagnostics.stop`. */
@@ -202,6 +204,11 @@ export interface DiagnosticsSnapshot {
     pluginVersion: string
   }
   devices: DeviceGauges
+  circuitBreaker: {
+    state: string
+    lastTripAt: number | null
+    trips: number
+  }
   polling: {
     cadenceSec: number
     lastDurationMs: number | null

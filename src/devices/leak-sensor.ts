@@ -68,11 +68,11 @@ export class LeakSensorAccessory {
    */
   private lastCheckinAt?: string
   /**
-   * True until the first poll completes. The first observation establishes the
-   * baseline silently because the platform logs a one-line boot state summary per
-   * device; only subsequent *transitions* are logged here.
+   * False after the silent baseline observation is established. The constructor
+   * applies the discovery payload as that baseline (the platform already logs a
+   * one-line boot state summary); only subsequent *transitions* are logged here.
    */
-  private firstObservation = true
+  private baselineEstablished = false
 
   constructor(
     private readonly platform: ResideoPlatform,
@@ -133,7 +133,8 @@ export class LeakSensorAccessory {
     this.updateStatus(device)
   }
 
-  private get displayName(): string {
+  /** HomeKit / log display name for this detector. */
+  get displayName(): string {
     return this.options.name || this.accessory.displayName
   }
 
@@ -207,24 +208,34 @@ export class LeakSensorAccessory {
       freezeThreshold: freeze.threshold,
       humidity,
     })
-    this.firstObservation = false
+    this.baselineEstablished = true
   }
 
   /**
    * Update the Battery service. Only asserts a level when the API reports one;
    * defaulting a missing reading to "100% / normal" would mislead during outages.
+   * When the reading disappears, raise StatusFault so a stale level is not
+   * presented as current (mirrors temperature/humidity handling).
    */
   private updateBattery(device: WaterLeakDetector, battery: number | undefined): void {
+    const { Characteristic } = this.platform
     if (battery === undefined) {
+      this.batteryService.updateCharacteristic(
+        Characteristic.StatusFault,
+        Characteristic.StatusFault.GENERAL_FAULT,
+      )
       return
     }
-    const { Characteristic } = this.platform
     this.batteryService.updateCharacteristic(Characteristic.BatteryLevel, battery)
     this.batteryService.updateCharacteristic(
       Characteristic.StatusLowBattery,
       isLowBattery(device.batteryRemaining)
         ? Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
         : Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL,
+    )
+    this.batteryService.updateCharacteristic(
+      Characteristic.StatusFault,
+      Characteristic.StatusFault.NO_FAULT,
     )
   }
 
@@ -278,7 +289,7 @@ export class LeakSensorAccessory {
    */
   private logCheckIn(device: WaterLeakDetector, latencyMs?: number): void {
     const current = device.lastCheckin
-    if (this.firstObservation) {
+    if (!this.baselineEstablished) {
       this.lastCheckinAt = current
       return
     }
@@ -301,7 +312,7 @@ export class LeakSensorAccessory {
    * the same alarms on every poll. Alarm type strings carry no account data.
    */
   private logActiveAlarms(device: WaterLeakDetector, alarmActive: boolean): void {
-    if (this.firstObservation) {
+    if (!this.baselineEstablished) {
       // Record the baseline silently: the platform's boot summary already reports
       // any alarm active at startup, so only later changes should log here.
       this.lastAlarmSignature = alarmActive ? activeAlarmTypes(device).join(',') : undefined
@@ -327,18 +338,18 @@ export class LeakSensorAccessory {
   /**
    * Log human-meaningful state transitions once when they flip (so the log
    * reflects what changed each poll, not the unchanging baseline), and emit a
-   * full per-poll snapshot at debug level. The first poll establishes the
-   * baseline silently (for healthy *and* abnormal devices): the platform logs a
-   * one-line boot state summary per device at startup, so transitions are only
-   * reported here on later polls to avoid duplicating that startup report.
+   * full per-poll snapshot at debug level. The constructor applies the discovery
+   * payload as a silent baseline (for healthy *and* abnormal devices): the
+   * platform logs a one-line boot state summary per device at startup, so
+   * transitions are only reported here on later polls.
    */
   private logObservedState(state: ObservedState): void {
     const prev = this.prev
     const name = this.displayName
     const { log } = this.platform
 
-    // Only after a baseline exists; the first observation is the silent baseline.
-    if (!this.firstObservation && prev !== undefined) {
+    // Only after a baseline exists; the discovery-time observation is silent.
+    if (this.baselineEstablished && prev !== undefined) {
       if (state.leak && !prev.leak) {
         log.warn(`${name}: LEAK DETECTED`)
       } else if (!state.leak && prev.leak) {

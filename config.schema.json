@@ -65,7 +65,7 @@
             "title": "Structured (JSON) Logs",
             "type": "boolean",
             "default": false,
-            "description": "Emit diagnostics as a machine-readable JSON line in addition to the human-readable summary."
+            "description": "When diagnostics are enabled (diagnosticsInterval > 0), also emit each diagnostics report as a machine-readable JSON line alongside the human-readable summary. Has no effect while diagnostics are disabled."
           },
           "devices": {
             "type": "array",

@@ -14,8 +14,8 @@ The plugin ships a custom Homebridge settings UI that runs the Authorization Cod
 
 1. Enter your **Consumer Key** and **Consumer Secret**, and confirm the **Redirect URL**. It must match the Callback URL registered on your developer application byte-for-byte; the default `http://localhost:8581/oauth/callback` is fine for most setups, and nothing needs to be listening there.
 2. Click **Open Resideo sign-in**. A new browser tab opens Resideo's sign-in page; sign in and approve access.
-3. Resideo redirects that tab to your Redirect URL with a one-time `code` attached. Because nothing is listening at that address, the tab will usually show a browser error or a blank page — that is expected. Copy the entire address-bar URL (or just the `code` value from it).
-4. Paste it into the **Paste the result** box and click **Link account**. The plugin exchanges the code for tokens, saves them to your config, and you restart Homebridge to apply.
+3. Resideo redirects that tab to your Redirect URL with a one-time `code` and matching `state` attached. Because nothing is listening at that address, the tab will usually show a browser error or a blank page — that is expected. Copy the **entire address-bar URL** (not just the code).
+4. Paste the full redirect URL into the **Paste the result** box and click **Link account**. The plugin verifies `state`, exchanges the code for tokens, saves them to your config, and you restart Homebridge to apply.
 
 Because the `code` travels inside the redirect URL itself, this flow works identically whether Homebridge runs on the machine you are browsing from or on a remote host — there is no extra port to open and nothing to expose.
 
@@ -54,6 +54,7 @@ Resideo issues short-lived access tokens (~30 minutes) alongside a rotating refr
 - **Optimistic startup** — a config-supplied `accessToken` (whose true expiry is unknown) is used once, then the plugin refreshes from the `refreshToken`. The `accessToken` is therefore optional.
 - **Proactive refresh** — refreshes one minute before `expires_in` elapses, so an in-flight poll never races an expiry.
 - **Single-flight** — concurrent callers share one refresh request.
-- **Bounded + retried** — the refresh request has a timeout and retries transient network/timeout/5xx failures with backoff, so one blip doesn't fail a whole cycle.
-- **Rotation persistence** — when Resideo returns a new `refresh_token`, it is written back to `config.json` atomically (temp file + rename) so it survives a restart and can't corrupt the config on a crash.
+- **Bounded + retried** — the refresh request has a timeout and retries transient network/timeout/5xx/429 failures with backoff (honoring `Retry-After` on 429), so one blip doesn't fail a whole cycle.
+- **OAuth `state`** — the account-linking UI and `get-tokens` script send an opaque `state` on authorize and verify it on the redirect (paste the full redirect URL after sign-in).
+- **Token persistence** — after every successful refresh, the current `refresh_token` and `access_token` are written back to `config.json` atomically (temp file + rename; on Windows, rename the live file aside then promote the temp file, restoring the backup if promote fails) so a restart can reuse a fresh access token and a rotated refresh token. The write pretty-prints the whole config file (4-space indent); other platforms' values are preserved, but formatting/key order may change.
 - **Clear, differentiated failure** — a `400 invalid_grant` surfaces as `RefreshTokenInvalidError` ("re-link your account"), while rejected developer credentials (`401` / `invalid_client`) surface as a `ConfigurationError` ("check your API key/secret"). The raw token-endpoint response body is never logged.

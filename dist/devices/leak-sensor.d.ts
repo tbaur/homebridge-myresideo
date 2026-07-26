@@ -41,13 +41,14 @@ export declare class LeakSensorAccessory {
      */
     private lastCheckinAt?;
     /**
-     * True until the first poll completes. The first observation establishes the
-     * baseline silently because the platform logs a one-line boot state summary per
-     * device; only subsequent *transitions* are logged here.
+     * False after the silent baseline observation is established. The constructor
+     * applies the discovery payload as that baseline (the platform already logs a
+     * one-line boot state summary); only subsequent *transitions* are logged here.
      */
-    private firstObservation;
+    private baselineEstablished;
     constructor(platform: ResideoPlatform, accessory: PlatformAccessory, options: LeakDetectorOptions, defaultFreezeThreshold?: number);
-    private get displayName();
+    /** HomeKit / log display name for this detector. */
+    get displayName(): string;
     /**
      * Remove an optional service that a cached accessory still carries after the
      * user disabled it (e.g. set `hideTemperatureSensor`/`hideHumiditySensor` or
@@ -64,6 +65,8 @@ export declare class LeakSensorAccessory {
     /**
      * Update the Battery service. Only asserts a level when the API reports one;
      * defaulting a missing reading to "100% / normal" would mislead during outages.
+     * When the reading disappears, raise StatusFault so a stale level is not
+     * presented as current (mirrors temperature/humidity handling).
      */
     private updateBattery;
     /**
@@ -94,10 +97,10 @@ export declare class LeakSensorAccessory {
     /**
      * Log human-meaningful state transitions once when they flip (so the log
      * reflects what changed each poll, not the unchanging baseline), and emit a
-     * full per-poll snapshot at debug level. The first poll establishes the
-     * baseline silently (for healthy *and* abnormal devices): the platform logs a
-     * one-line boot state summary per device at startup, so transitions are only
-     * reported here on later polls to avoid duplicating that startup report.
+     * full per-poll snapshot at debug level. The constructor applies the discovery
+     * payload as a silent baseline (for healthy *and* abnormal devices): the
+     * platform logs a one-line boot state summary per device at startup, so
+     * transitions are only reported here on later polls.
      */
     private logObservedState;
     /**

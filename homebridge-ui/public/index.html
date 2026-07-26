@@ -87,11 +87,11 @@
       <div id="resideoStep2" class="resideo-step" style="display:none">
         <div><span class="resideo-step-num">2</span><strong>Paste the result</strong></div>
         <p class="resideo-hint text-muted">
-          Copy the entire address-bar URL from the redirected tab (or just the <code>code</code> value) and paste it
-          here, then link.
+          Copy the entire address-bar URL from the redirected tab and paste it here, then link.
+          The full URL is required so the linking <code>state</code> can be verified.
         </p>
         <div class="form-group">
-          <label for="resideoPasted">Authorization code or redirect URL</label>
+          <label for="resideoPasted">Full redirect URL from the sign-in tab</label>
           <input id="resideoPasted" type="text" class="form-control" autocomplete="off" spellcheck="false"
             placeholder="http://localhost:8581/oauth/callback?code=...">
         </div>
@@ -104,14 +104,19 @@
   <script>
     (async () => {
       const DEFAULT_REDIRECT_URI = 'http://localhost:8581/oauth/callback'
-      // Resideo / Honeywell Home OAuth2 authorize endpoint (see docs/API.md).
-      // Mirrors buildAuthorizeUrl() in src/api/auth.ts; built here in the
-      // browser so opening sign-in needs no round-trip to the UI server (which
-      // may not be ready on a fresh install) and so window.open() stays inside
-      // the click gesture and is not popup-blocked.
-      const AUTHORIZE_URL = 'https://api.honeywellhome.com/oauth2/authorize'
+      // Fallback authorize host if /oauth-meta has not been fetched yet. Prefer
+      // the value from the UI server (dist/settings) so the host stays in sync.
+      let authorizeUrlBase = 'https://api.honeywellhome.com/oauth2/authorize'
+      // CSRF state for the in-flight linking attempt (sessionStorage + exchange).
+      const OAUTH_STATE_KEY = 'resideo.oauth.state'
       const byId = id => document.getElementById(id)
       const log = (...args) => console.info('[resideo-ui]', ...args)
+
+      const generateOAuthState = () => {
+        const bytes = new Uint8Array(16)
+        crypto.getRandomValues(bytes)
+        return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+      }
 
       // config-ui-x dispatches 'ready' on the homebridge object once it has
       // spawned our server child and wired up the request/response bridge.
@@ -123,6 +128,11 @@
       homebridge.addEventListener('ready', () => {
         homebridgeReady = true
         log('homebridge UI bridge ready')
+        homebridge.request('/oauth-meta').then((meta) => {
+          if (meta && typeof meta.authorizeUrl === 'string' && meta.authorizeUrl) {
+            authorizeUrlBase = meta.authorizeUrl
+          }
+        }).catch(() => {})
       })
 
       // homebridge.request()/savePluginConfig()/etc. all funnel through an
@@ -278,30 +288,65 @@
         showLinkForm()
       })
 
-      openAuthBtn.addEventListener('click', () => {
+      openAuthBtn.addEventListener('click', async () => {
         const consumerKey = trimmed(keyEl)
         const redirectUri = trimmed(redirectEl)
         if (!consumerKey || !redirectUri) {
           homebridge.toast.error('Enter your Consumer Key and a Redirect URL first.', 'Missing details')
           return
         }
-        let authorizeUrl
-        try {
-          const url = new URL(AUTHORIZE_URL)
+        // Open synchronously so the popup stays tied to the click gesture, then
+        // navigate after `/build-authorize-url` returns the shared authorize URL.
+        const popup = window.open('about:blank', '_blank')
+        const showAuthorize = (authorizeUrl, state) => {
+          sessionStorage.setItem(OAUTH_STATE_KEY, state)
+          authUrlLink.href = authorizeUrl
+          authUrlLink.textContent = authorizeUrl
+          authFallback.style.display = 'block'
+          step2.style.display = 'block'
+          if (popup && !popup.closed) {
+            popup.location = authorizeUrl
+          } else {
+            window.open(authorizeUrl, '_blank', 'noopener')
+          }
+        }
+        const buildLocally = () => {
+          const state = generateOAuthState()
+          const url = new URL(authorizeUrlBase)
           url.searchParams.set('response_type', 'code')
           url.searchParams.set('client_id', consumerKey)
           url.searchParams.set('redirect_uri', redirectUri)
-          authorizeUrl = url.toString()
-        } catch {
-          homebridge.toast.error('Could not build the sign-in URL — check your Redirect URL.', 'Could not start sign-in')
-          return
+          url.searchParams.set('state', state)
+          return { authorizeUrl: url.toString(), state }
         }
-        authUrlLink.href = authorizeUrl
-        authUrlLink.textContent = authorizeUrl
-        authFallback.style.display = 'block'
-        step2.style.display = 'block'
-        // Synchronous (within the click) so the browser does not block the popup.
-        window.open(authorizeUrl, '_blank', 'noopener')
+        try {
+          if (await waitForReady()) {
+            const built = await withTimeout(
+              homebridge.request('/build-authorize-url', { consumerKey, redirectUri }),
+              8000,
+              'Building sign-in URL',
+            )
+            if (built && built.authorizeUrl && built.state) {
+              showAuthorize(built.authorizeUrl, built.state)
+              return
+            }
+          }
+          const local = buildLocally()
+          showAuthorize(local.authorizeUrl, local.state)
+        } catch (err) {
+          try {
+            const local = buildLocally()
+            showAuthorize(local.authorizeUrl, local.state)
+          } catch {
+            if (popup && !popup.closed) {
+              popup.close()
+            }
+            homebridge.toast.error(
+              err && err.message ? err.message : 'Could not build the sign-in URL — check your Redirect URL.',
+              'Could not start sign-in',
+            )
+          }
+        }
       })
 
       linkBtn.addEventListener('click', async () => {
@@ -314,7 +359,7 @@
           return
         }
         if (!pastedValue) {
-          homebridge.toast.error('Paste the code or redirect URL from the sign-in tab.', 'Nothing to link')
+          homebridge.toast.error('Paste the full redirect URL from the sign-in tab.', 'Nothing to link')
           return
         }
         homebridge.showSpinner()
@@ -326,11 +371,24 @@
             throw new Error('Could not reach the Homebridge UI service. Close this settings window and reopen it, then try again.')
           }
           log('exchanging authorization code')
+          const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY)
+          if (!expectedState) {
+            throw new Error(
+              'Linking state is missing. Click Open Resideo sign-in again, then paste the full redirect URL.',
+            )
+          }
           const tokens = await withTimeout(
-            homebridge.request('/exchange-code', { consumerKey, consumerSecret, redirectUri, pastedValue }),
+            homebridge.request('/exchange-code', {
+              consumerKey,
+              consumerSecret,
+              redirectUri,
+              pastedValue,
+              expectedState,
+            }),
             EXCHANGE_TIMEOUT_MS,
             'Token exchange',
           )
+          sessionStorage.removeItem(OAUTH_STATE_KEY)
           log('exchange succeeded; writing config')
           const block = ensureBlock()
           block.credentials = Object.assign({}, block.credentials, {

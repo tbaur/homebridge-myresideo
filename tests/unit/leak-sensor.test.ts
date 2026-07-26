@@ -185,6 +185,18 @@ describe('LeakSensorAccessory', () => {
     const battery = accessory.services.get(Service.Battery)
     expect(latestValue(battery, Characteristic.BatteryLevel)).toBeUndefined()
     expect(latestValue(battery, Characteristic.StatusLowBattery)).toBeUndefined()
+    expect(latestValue(battery, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
+  })
+
+  it('flags a general fault when a battery reading later disappears', () => {
+    const { accessory, handler } = build(baseDevice({ batteryRemaining: 80 }))
+    const battery = accessory.services.get(Service.Battery)
+    expect(latestValue(battery, Characteristic.BatteryLevel)).toBe(80)
+    expect(latestValue(battery, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.NO_FAULT)
+
+    handler.updateStatus(baseDevice({ batteryRemaining: undefined }))
+    expect(latestValue(battery, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
+    expect(latestValue(battery, Characteristic.BatteryLevel)).toBe(80)
   })
 
   it('sets temperature and clears fault when a reading is present', () => {
