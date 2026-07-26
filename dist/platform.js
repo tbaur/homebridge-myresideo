@@ -45,6 +45,11 @@ class ResideoPlatform {
     /** Device IDs whose one-line boot state summary has already been logged, so a
      *  discovery retry that re-registers the same detectors does not re-log it. */
     bootSummaryLogged = new Set();
+    /**
+     * Consecutive non-empty discoveries that omitted each device ID. Cleared when
+     * the device reappears; removal requires {@link STALE_REMOVAL_CONFIRMATIONS}.
+     */
+    pendingRemovalCounts = new Map();
     tokenManager;
     client;
     pollTimer;
@@ -58,7 +63,7 @@ class ResideoPlatform {
     diagnostics;
     diagnosticsTimer;
     lastDiagnosticsHealth = null;
-    /** Detectors returned by Resideo at the last successful discovery. */
+    /** Detectors returned by Resideo at the last trusted (fully reconciled) discovery. */
     lastCloudDetectorCount = 0;
     /** Epoch ms of the last failed token refresh, for the degraded-health window. */
     lastRefreshFailureAt = null;
@@ -168,19 +173,33 @@ class ResideoPlatform {
                     }
                 }
             }
-            this.log.info(`Discovered ${detectors.length} water leak detector(s)`);
-            this.lastCloudDetectorCount = detectors.length;
+            // After a few empty retries, keep looking but stop spamming info/warn — a
+            // multi-hour Resideo outage would otherwise fill the Homebridge log.
+            const quietEmptyRetry = detectors.length === 0 && this.discoveryAttempt >= 3;
+            if (quietEmptyRetry) {
+                this.log.debug(`Discovered ${detectors.length} water leak detector(s)`);
+            }
+            else {
+                this.log.info(`Discovered ${detectors.length} water leak detector(s)`);
+            }
             // An empty locations/devices payload during a Resideo outage looks like a
             // successful discovery of zero detectors. Never treat that as terminal:
             // pruning would wipe HomeKit when cache remains, and accepting 0 with an
             // empty cache (e.g. after a prior wipe) would sit idle until a manual
             // restart even after the cloud recovers. Keep/restore what we can and retry.
+            // Empty responses also must not count toward stale-removal confirmation.
             if (detectors.length === 0) {
                 const cachedDetectorCount = this.countCachedDetectors();
                 if (cachedDetectorCount > 0) {
-                    this.log.warn(`Discovery returned 0 detectors while ${cachedDetectorCount} cached `
+                    const message = (`Discovery returned 0 detectors while ${cachedDetectorCount} cached `
                         + `accessor${cachedDetectorCount === 1 ? 'y' : 'ies'} remain; skipping stale `
                         + 'removal and retrying (empty cloud responses must not wipe HomeKit).');
+                    if (quietEmptyRetry) {
+                        this.log.debug(message);
+                    }
+                    else {
+                        this.log.warn(message);
+                    }
                     // Corrupt cache entries without a deviceID are still safe to drop.
                     this.pruneCorruptAccessories();
                     this.restoreHandlersFromCache();
@@ -191,7 +210,13 @@ class ResideoPlatform {
                     }
                 }
                 else {
-                    this.log.warn('Discovery returned 0 detectors; retrying in case this is a transient empty cloud response.');
+                    const message = ('Discovery returned 0 detectors; retrying in case this is a transient empty cloud response.');
+                    if (quietEmptyRetry) {
+                        this.log.debug(message);
+                    }
+                    else {
+                        this.log.warn(message);
+                    }
                     this.startDiagnostics();
                 }
                 this.scheduleDiscoveryRetry();
@@ -200,7 +225,20 @@ class ResideoPlatform {
             for (const { device, locationId } of detectors) {
                 this.registerDevice(device, locationId);
             }
-            this.pruneStaleAccessories(new Set(detectors.map(d => d.device.deviceID)));
+            this.pruneCorruptAccessories();
+            const discoveredIds = new Set(detectors.map(d => d.device.deviceID));
+            this.reconcileMissingDetectors(discoveredIds);
+            // Partial lists keep polling what we have and re-discover until missing
+            // detectors are confirmed gone (or they reappear).
+            if (this.pendingRemovalCounts.size > 0) {
+                this.discoveryAttempt = 0;
+                await this.runPollCycle();
+                this.startPolling();
+                this.startDiagnostics();
+                this.scheduleDiscoveryRetry();
+                return;
+            }
+            this.lastCloudDetectorCount = detectors.length;
             this.discoveryAttempt = 0;
             await this.runPollCycle();
             this.startPolling();
@@ -319,10 +357,18 @@ class ResideoPlatform {
     }
     /** Count cached accessories that look like real detectors (have a deviceID). */
     countCachedDetectors() {
-        return this.accessories.filter((accessory) => {
+        return this.cachedDetectorIds().length;
+    }
+    /** Device IDs present on currently cached accessories. */
+    cachedDetectorIds() {
+        const ids = [];
+        for (const accessory of this.accessories) {
             const id = accessory.context.device?.deviceID;
-            return id !== undefined && id !== '';
-        }).length;
+            if (id !== undefined && id !== '') {
+                ids.push(id);
+            }
+        }
+        return ids;
     }
     /**
      * Re-wire handlers from Homebridge cache when discovery returns empty but
@@ -348,16 +394,33 @@ class ResideoPlatform {
             return id === undefined || id === '';
         }));
     }
-    /** Unregister cached accessories that are no longer present in the account. */
-    pruneStaleAccessories(currentDeviceIds) {
-        this.unregisterAccessories(this.accessories.filter((accessory) => {
+    /**
+     * Track detectors missing from a non-empty discovery and only unregister after
+     * {@link STALE_REMOVAL_CONFIRMATIONS} consecutive omissions. A single partial
+     * cloud list must not wipe accessories.
+     */
+    reconcileMissingDetectors(discoveredIds) {
+        for (const id of discoveredIds) {
+            this.pendingRemovalCounts.delete(id);
+        }
+        const confirmed = [];
+        for (const accessory of this.accessories) {
             const id = accessory.context.device?.deviceID;
-            // Missing/empty deviceID is corrupt cache — prune it rather than keep it forever.
-            if (id === undefined || id === '') {
-                return true;
+            if (id === undefined || id === '' || discoveredIds.has(id)) {
+                continue;
             }
-            return !currentDeviceIds.has(id);
-        }));
+            const count = (this.pendingRemovalCounts.get(id) ?? 0) + 1;
+            this.pendingRemovalCounts.set(id, count);
+            if (count >= settings_1.STALE_REMOVAL_CONFIRMATIONS) {
+                confirmed.push(accessory);
+                continue;
+            }
+            this.log.warn(`Detector ${accessory.displayName} missing from cloud `
+                + `(${count}/${settings_1.STALE_REMOVAL_CONFIRMATIONS}); not removing yet`);
+        }
+        if (confirmed.length > 0) {
+            this.unregisterAccessories(confirmed);
+        }
     }
     unregisterAccessories(stale) {
         if (stale.length === 0) {
@@ -373,6 +436,7 @@ class ResideoPlatform {
             if (device?.deviceID) {
                 this.handlers.delete(device.deviceID);
                 this.locationByDevice.delete(device.deviceID);
+                this.pendingRemovalCounts.delete(device.deviceID);
                 // Forget the boot-summary marker so a detector that later returns to the
                 // account is reported again rather than being silently re-added.
                 this.bootSummaryLogged.delete(device.deviceID);

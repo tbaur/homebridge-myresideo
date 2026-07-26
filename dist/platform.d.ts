@@ -21,6 +21,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     /** Device IDs whose one-line boot state summary has already been logged, so a
      *  discovery retry that re-registers the same detectors does not re-log it. */
     private readonly bootSummaryLogged;
+    /**
+     * Consecutive non-empty discoveries that omitted each device ID. Cleared when
+     * the device reappears; removal requires {@link STALE_REMOVAL_CONFIRMATIONS}.
+     */
+    private readonly pendingRemovalCounts;
     private tokenManager?;
     private client?;
     private pollTimer?;
@@ -33,7 +38,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     private diagnostics?;
     private diagnosticsTimer?;
     private lastDiagnosticsHealth;
-    /** Detectors returned by Resideo at the last successful discovery. */
+    /** Detectors returned by Resideo at the last trusted (fully reconciled) discovery. */
     private lastCloudDetectorCount;
     /** Epoch ms of the last failed token refresh, for the degraded-health window. */
     private lastRefreshFailureAt;
@@ -71,6 +76,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     private registerDevice;
     /** Count cached accessories that look like real detectors (have a deviceID). */
     private countCachedDetectors;
+    /** Device IDs present on currently cached accessories. */
+    private cachedDetectorIds;
     /**
      * Re-wire handlers from Homebridge cache when discovery returns empty but
      * accessories still carry a device + locationId from a prior successful pass.
@@ -78,8 +85,12 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     private restoreHandlersFromCache;
     /** Drop corrupt cache entries that have no deviceID; leave real detectors alone. */
     private pruneCorruptAccessories;
-    /** Unregister cached accessories that are no longer present in the account. */
-    private pruneStaleAccessories;
+    /**
+     * Track detectors missing from a non-empty discovery and only unregister after
+     * {@link STALE_REMOVAL_CONFIRMATIONS} consecutive omissions. A single partial
+     * cloud list must not wipe accessories.
+     */
+    private reconcileMissingDetectors;
     private unregisterAccessories;
     private optionsForDevice;
     private startPolling;

@@ -23,7 +23,7 @@
 - ✅ Refresh + access tokens persisted atomically back to `config.json` after every successful refresh (cross-platform replace)
 - ✅ Automatic retry of transient network/timeout/5xx/429 errors (API and token refresh) with exponential backoff; both honor `Retry-After` when present
 - ✅ Circuit breaker for sustained Resideo API outages (fail-fast while open; single half-open probe after cooldown; transitions logged)
-- ✅ Self-healing discovery retry after a transient startup outage (including empty cloud payloads that would otherwise wipe cached accessories)
+- ✅ Self-healing discovery retry after a transient startup outage (including empty/partial cloud payloads; stale removal requires repeated confirmation)
 - ✅ Bounded request timeouts (including token refresh)
 - ✅ Secret redaction in logs (apikey, bearer/basic auth, access/refresh tokens, consumer secret); API errors use short status text without query strings
 - ✅ Startup config validation (fail fast with actionable messages); distinguishes a bad refresh token from rejected API credentials

@@ -190,7 +190,9 @@ describe('discovery and polling', () => {
     handlers.shutdown()
   })
 
-  it('unregisters stale cached accessories that are no longer in the account', async () => {
+  it('unregisters a stale detector only after repeated non-empty discoveries omit it', async () => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
     mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
     mockGetDetector.mockResolvedValue(leakDevice)
 
@@ -201,13 +203,20 @@ describe('discovery and polling', () => {
     const stale = {
       UUID: 'uuid-old',
       displayName: 'Old Detector',
-      context: { device: { deviceID: 'old-dev' } },
+      context: { device: { deviceID: 'old-dev' }, locationId: 1 },
     } as unknown as PlatformAccessory
     platform.configureAccessory(stale)
 
     handlers.didFinishLaunching()
-    await flush()
+    await jest.advanceTimersByTimeAsync(0)
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('1/3'))
 
+    await jest.advanceTimersByTimeAsync(15_000)
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('2/3'))
+
+    await jest.advanceTimersByTimeAsync(15_000)
     expect(api.unregisterPlatformAccessories).toHaveBeenCalledWith(
       'homebridge-myresideo',
       'MyResideo',
@@ -215,6 +224,54 @@ describe('discovery and polling', () => {
     )
 
     handlers.shutdown()
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
+  it('does not prune on a single partial discovery during an outage', async () => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    const kept = leakDevice
+    const missing: WaterLeakDetector = {
+      deviceID: 'dev-2',
+      deviceClass: 'LeakDetector',
+      deviceType: 'Water Leak Detector',
+      waterPresent: false,
+      userDefinedDeviceName: 'Laundry',
+    }
+    mockGetLocations
+      .mockResolvedValueOnce([{ locationID: 1, devices: [kept] }])
+      .mockResolvedValueOnce([{ locationID: 1, devices: [kept, missing] }])
+    mockGetDetector.mockImplementation(async (id: string) => (id === 'dev-2' ? missing : kept))
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    const platform = new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    platform.configureAccessory({
+      UUID: 'uuid-myresideo-dev-1',
+      displayName: 'Kitchen',
+      context: { device: { ...kept }, locationId: 1 },
+    } as unknown as PlatformAccessory)
+    platform.configureAccessory({
+      UUID: 'uuid-myresideo-dev-2',
+      displayName: 'Laundry',
+      context: { device: { ...missing }, locationId: 1 },
+    } as unknown as PlatformAccessory)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('not removing yet'))
+
+    await jest.advanceTimersByTimeAsync(15_000)
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
+    expect(mockGetLocations).toHaveBeenCalledTimes(2)
+
+    handlers.shutdown()
+    jest.useRealTimers()
+    jest.restoreAllMocks()
   })
 
   it('prunes cached accessories missing a deviceID', async () => {
@@ -312,6 +369,32 @@ describe('discovery and polling', () => {
     await jest.advanceTimersByTimeAsync(30_000)
     expect(mockGetLocations).toHaveBeenCalledTimes(3)
     expect(api.registerPlatformAccessories).toHaveBeenCalledTimes(1)
+
+    handlers.shutdown()
+    jest.useRealTimers()
+    jest.restoreAllMocks()
+  })
+
+  it('demotes repeated empty-discovery logs to debug after the first few attempts', async () => {
+    jest.useFakeTimers()
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    mockGetLocations.mockResolvedValue([])
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0) // attempt becomes 1
+    await jest.advanceTimersByTimeAsync(15_000) // 2
+    await jest.advanceTimersByTimeAsync(30_000) // 3
+    const warnsBeforeQuiet = (log.warn as jest.Mock).mock.calls.length
+
+    await jest.advanceTimersByTimeAsync(60_000) // attempt 4 — should be quiet
+    expect(log.warn).toHaveBeenCalledTimes(warnsBeforeQuiet)
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('Discovered 0'))
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('transient empty cloud response'))
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('Retrying device discovery'))
 
     handlers.shutdown()
     jest.useRealTimers()
