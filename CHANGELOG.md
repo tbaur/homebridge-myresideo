@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.4.2](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.1...v1.4.2) (2026-07-26)
+
+
+### Bug Fixes
+
+* keep retrying discovery after an empty device list ([#66](https://github.com/tbaur/homebridge-myresideo/issues/66)) ([f72eee4](https://github.com/tbaur/homebridge-myresideo/commit/f72eee4fb01cbacce3e54ff8bc93688f20790c61))
+
 ## [1.4.1](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.0...v1.4.1) (2026-07-26)
 
 
