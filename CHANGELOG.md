@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.4.1](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.0...v1.4.1) (2026-07-26)
+
+
+### Bug Fixes
+
+* keep cached detectors when discovery returns empty ([#64](https://github.com/tbaur/homebridge-myresideo/issues/64)) ([d132178](https://github.com/tbaur/homebridge-myresideo/commit/d13217893bc576802cd2bca2edb43d1950c44e5c))
+
 ## [1.4.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.3.0...v1.4.0) (2026-07-26)
 
 
