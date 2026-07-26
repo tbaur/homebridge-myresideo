@@ -309,26 +309,15 @@ class ResideoPlatform {
         }, wait);
     }
     /**
-     * When empty-discovery retries go quiet, say so once — and periodically — so
-     * the log never implies discovery stopped.
+     * When empty-discovery retries go quiet, say so once so the log does not imply
+     * discovery stopped. Further empty attempts stay at debug until recovery.
      */
     logEmptyDiscoveryStatus() {
-        const attempt = this.discoveryAttempt;
-        if (attempt < settings_1.EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS) {
-            return;
-        }
-        const sinceQuiet = attempt - settings_1.EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS;
-        if (sinceQuiet !== 0 && sinceQuiet % settings_1.EMPTY_DISCOVERY_STATUS_EVERY !== 0) {
+        if (this.discoveryAttempt !== settings_1.EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS) {
             return;
         }
         const waitSec = Math.round(settings_1.MAX_DISCOVERY_RETRY_MS / 1000);
-        if (sinceQuiet === 0) {
-            this.log.info(`Still retrying discovery about every ${waitSec}s; further empty responses at debug `
-                + '(plugin has not given up).');
-            return;
-        }
-        this.log.info(`Still waiting for Resideo detectors (discovery attempt ${attempt}); `
-            + `retrying about every ${waitSec}s.`);
+        this.log.info(`Retrying discovery every ${waitSec}s (next message upon recovery)`);
     }
     registerDevice(device, locationId) {
         const rawOptions = this.optionsForDevice(device.deviceID);

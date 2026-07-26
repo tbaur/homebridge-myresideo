@@ -74,8 +74,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      */
     private scheduleDiscoveryRetry;
     /**
-     * When empty-discovery retries go quiet, say so once — and periodically — so
-     * the log never implies discovery stopped.
+     * When empty-discovery retries go quiet, say so once so the log does not imply
+     * discovery stopped. Further empty attempts stay at debug until recovery.
      */
     private logEmptyDiscoveryStatus;
     private registerDevice;

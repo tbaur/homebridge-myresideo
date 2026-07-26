@@ -375,7 +375,7 @@ describe('discovery and polling', () => {
     jest.restoreAllMocks()
   })
 
-  it('demotes repeated empty-discovery logs to debug but keeps a status heartbeat', async () => {
+  it('demotes repeated empty-discovery logs to debug after a one-line quiet status', async () => {
     jest.useFakeTimers()
     jest.spyOn(Math, 'random').mockReturnValue(0.5)
     mockGetLocations.mockResolvedValue([])
@@ -389,14 +389,17 @@ describe('discovery and polling', () => {
     await jest.advanceTimersByTimeAsync(15_000) // 2
     await jest.advanceTimersByTimeAsync(30_000) // 3
     const warnsBeforeQuiet = (log.warn as jest.Mock).mock.calls.length
+    const infosBeforeQuiet = (log.info as jest.Mock).mock.calls.length
 
     await jest.advanceTimersByTimeAsync(60_000) // attempt 3 at discover → quiet + status
     expect(log.warn).toHaveBeenCalledTimes(warnsBeforeQuiet)
-    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Still retrying discovery'))
-    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('has not given up'))
+    expect(log.info).toHaveBeenCalledWith('Retrying discovery every 300s (next message upon recovery)')
     expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('Discovered 0'))
     expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('transient empty cloud response'))
     expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('Retrying device discovery'))
+
+    await jest.advanceTimersByTimeAsync(300_000) // still empty — no more info spam
+    expect(log.info).toHaveBeenCalledTimes(infosBeforeQuiet + 1)
 
     handlers.shutdown()
     jest.useRealTimers()
