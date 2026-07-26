@@ -11,7 +11,7 @@ import { AUTHORIZE_URL } from '../../src/settings'
 
 // Handlers load compiled dist helpers (same path the UI server uses at runtime).
 const { PendingOAuthState, buildAuthorizeUrlResponse, exchangeCode } = require('../../homebridge-ui/handlers') as {
-  PendingOAuthState: new (this: void) => { set: (state: string) => void, take: () => string | null }
+  PendingOAuthState: { new (): { set: (state: string) => void, take: () => string | null } }
   buildAuthorizeUrlResponse: (payload: { consumerKey?: string, redirectUri?: string }) => {
     authorizeUrl: string
     state: string
