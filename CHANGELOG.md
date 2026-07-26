@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.4.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.3.0...v1.4.0) (2026-07-26)
+
+
+### Features
+
+* add circuit breaker, OAuth state, and resilient API outage handling ([#61](https://github.com/tbaur/homebridge-myresideo/issues/61)) ([ffd97f9](https://github.com/tbaur/homebridge-myresideo/commit/ffd97f9834cede99977d03309e5871021a514167))
+
+
+### Bug Fixes
+
+* keep OAuth state on the UI server, not sessionStorage ([#63](https://github.com/tbaur/homebridge-myresideo/issues/63)) ([d843621](https://github.com/tbaur/homebridge-myresideo/commit/d843621e2a71601676aa6a544226b110779a13b2))
+
 ## [1.3.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.2.0...v1.3.0) (2026-07-02)
 
 
