@@ -42,7 +42,8 @@
     "@homebridge/plugin-ui-utils": "^2.2.4"
   },
   "overrides": {
-    "js-yaml": "^4.2.0"
+    "js-yaml": "^4.2.0",
+    "brace-expansion": "5.0.8"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
