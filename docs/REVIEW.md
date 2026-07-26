@@ -9,7 +9,7 @@ This document summarizes the plugin's security, reliability, maintainability, an
 | Area | Status | Notes |
 |------|--------|-------|
 | **Credential Handling** | ✅ | OAuth2 only; the plugin never sees the user's Resideo password |
-| **OAuth `state`** | ✅ | Account-linking UI and `get-tokens` send an opaque CSPRNG `state` on authorize; `/exchange-code` requires `expectedState` (no fail-open) and rejects mismatched redirects |
+| **OAuth `state`** | ✅ | Account-linking UI and `get-tokens` send an opaque CSPRNG `state` on authorize; the UI server retains `state` in memory (never `sessionStorage`) and verifies it on `/exchange-code` (no fail-open); mismatched redirects are rejected |
 | **Secret Redaction** | ✅ | `sanitizeError()` / `sanitizeString()` redact `apikey`, `Authorization`, bearer/basic credentials, access/refresh tokens, and the consumer/client secret; no credentials or tokens (including masked fragments) are written to logs; token-endpoint response bodies are never logged |
 | **Token Persistence** | ✅ | Refresh + access tokens persisted to `config.json` after every successful refresh (atomic replace; Windows rename-aside with restore-on-failure) |
 | **Input Validation** | ✅ | `validateConfig()` runs at startup; fatal errors stop the plugin with an actionable message |

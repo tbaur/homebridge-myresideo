@@ -10,7 +10,8 @@
 import { AUTHORIZE_URL } from '../../src/settings'
 
 // Handlers load compiled dist helpers (same path the UI server uses at runtime).
-const { buildAuthorizeUrlResponse, exchangeCode } = require('../../homebridge-ui/handlers') as {
+const { PendingOAuthState, buildAuthorizeUrlResponse, exchangeCode } = require('../../homebridge-ui/handlers') as {
+  PendingOAuthState: new (this: void) => { set: (state: string) => void, take: () => string | null }
   buildAuthorizeUrlResponse: (payload: { consumerKey?: string, redirectUri?: string }) => {
     authorizeUrl: string
     state: string
@@ -28,6 +29,21 @@ const { buildAuthorizeUrlResponse, exchangeCode } = require('../../homebridge-ui
 }
 
 describe('homebridge-ui handlers', () => {
+  describe('PendingOAuthState', () => {
+    it('returns and clears a remembered state once', () => {
+      const pending = new PendingOAuthState()
+      pending.set('opaque-state')
+      expect(pending.take()).toBe('opaque-state')
+      expect(pending.take()).toBeNull()
+    })
+
+    it('ignores empty values', () => {
+      const pending = new PendingOAuthState()
+      pending.set('')
+      expect(pending.take()).toBeNull()
+    })
+  })
+
   describe('buildAuthorizeUrlResponse', () => {
     it('returns a shared authorize URL that includes state', () => {
       const result = buildAuthorizeUrlResponse({

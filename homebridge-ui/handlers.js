@@ -22,6 +22,29 @@ const { sanitizeError } = require('../dist/utils')
 const asTrimmedString = value => (typeof value === 'string' ? value.trim() : '')
 
 /**
+ * One-shot in-memory holder for the OAuth CSRF `state` issued by
+ * `/build-authorize-url`. Kept on the UI server process so the browser never
+ * stores the value (e.g. in sessionStorage).
+ */
+class PendingOAuthState {
+  constructor() {
+    this.value = null
+  }
+
+  /** Remember the state for the current linking attempt. */
+  set(state) {
+    this.value = typeof state === 'string' && state ? state : null
+  }
+
+  /** Return and clear the pending state (one-time use). */
+  take() {
+    const current = this.value
+    this.value = null
+    return current
+  }
+}
+
+/**
  * Build an authorize URL with a fresh CSRF `state` via the shared auth helper.
  * @param {{ consumerKey?: unknown, redirectUri?: unknown }} payload
  * @returns {{ authorizeUrl: string, state: string }}
@@ -92,6 +115,7 @@ async function exchangeCode(payload, deps = {}) {
 
 module.exports = {
   asTrimmedString,
+  PendingOAuthState,
   buildAuthorizeUrlResponse,
   exchangeCode,
 }
