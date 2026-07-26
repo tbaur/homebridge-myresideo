@@ -93,6 +93,17 @@ export const MAX_DISCOVERY_RETRY_MS = 5 * 60_000
 export const STALE_REMOVAL_CONFIRMATIONS = 3
 
 /**
+ * After this many empty-discovery attempts, per-attempt notices move to debug.
+ * A one-line info status is logged at this attempt and then every
+ * {@link EMPTY_DISCOVERY_STATUS_EVERY} attempts so a long outage does not look
+ * like the plugin gave up.
+ */
+export const EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS = 3
+
+/** How often (in discovery attempts) to re-announce a quiet empty-discovery wait. */
+export const EMPTY_DISCOVERY_STATUS_EVERY = 6
+
+/**
  * Refresh the access token this many milliseconds before it actually expires,
  * so an in-flight poll never races a token expiry.
  */

@@ -73,6 +73,11 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * boot doesn't leave the plugin permanently inert until a manual restart.
      */
     private scheduleDiscoveryRetry;
+    /**
+     * When empty-discovery retries go quiet, say so once — and periodically — so
+     * the log never implies discovery stopped.
+     */
+    private logEmptyDiscoveryStatus;
     private registerDevice;
     /** Count cached accessories that look like real detectors (have a deviceID). */
     private countCachedDetectors;

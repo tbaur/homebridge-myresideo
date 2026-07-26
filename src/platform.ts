@@ -32,6 +32,8 @@ import {
 } from './errors'
 import {
   DEFAULT_REFRESH_RATE_SEC,
+  EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS,
+  EMPTY_DISCOVERY_STATUS_EVERY,
   INITIAL_DISCOVERY_RETRY_MS,
   MAX_DISCOVERY_RETRY_MS,
   MIN_DIAGNOSTICS_INTERVAL_SEC,
@@ -238,9 +240,13 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         }
       }
 
-      // After a few empty retries, keep looking but stop spamming info/warn — a
-      // multi-hour Resideo outage would otherwise fill the Homebridge log.
-      const quietEmptyRetry = detectors.length === 0 && this.discoveryAttempt >= 3
+      // After a few empty retries, keep looking but stop spamming per-attempt
+      // info/warn. A long Resideo outage would otherwise fill the Homebridge log;
+      // we still emit an occasional status line so quiet ≠ gave up.
+      const quietEmptyRetry = (
+        detectors.length === 0
+        && this.discoveryAttempt >= EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS
+      )
       if (quietEmptyRetry) {
         this.log.debug(`Discovered ${detectors.length} water leak detector(s)`)
       } else {
@@ -285,6 +291,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
           }
           this.startDiagnostics()
         }
+        this.logEmptyDiscoveryStatus()
         this.scheduleDiscoveryRetry()
         return
       }
@@ -364,8 +371,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     const wait = backoffMs(this.discoveryAttempt, INITIAL_DISCOVERY_RETRY_MS, MAX_DISCOVERY_RETRY_MS)
     const message = `Retrying device discovery in ${Math.round(wait / 1000)}s (attempt ${this.discoveryAttempt})`
     // Keep the first few retries visible during an outage; after that demote so a
-    // genuinely empty account does not warn forever at the 5-minute cap.
-    if (this.discoveryAttempt <= 3) {
+    // long outage does not warn forever at the 5-minute cap.
+    if (this.discoveryAttempt <= EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS) {
       this.log.warn(message)
     } else {
       this.log.debug(message)
@@ -374,6 +381,33 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       this.discoveryTimer = undefined
       void this.discoverDevices()
     }, wait)
+  }
+
+  /**
+   * When empty-discovery retries go quiet, say so once — and periodically — so
+   * the log never implies discovery stopped.
+   */
+  private logEmptyDiscoveryStatus(): void {
+    const attempt = this.discoveryAttempt
+    if (attempt < EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS) {
+      return
+    }
+    const sinceQuiet = attempt - EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS
+    if (sinceQuiet !== 0 && sinceQuiet % EMPTY_DISCOVERY_STATUS_EVERY !== 0) {
+      return
+    }
+    const waitSec = Math.round(MAX_DISCOVERY_RETRY_MS / 1000)
+    if (sinceQuiet === 0) {
+      this.log.info(
+        `Still retrying discovery about every ${waitSec}s; further empty responses at debug `
+        + '(plugin has not given up).',
+      )
+      return
+    }
+    this.log.info(
+      `Still waiting for Resideo detectors (discovery attempt ${attempt}); `
+      + `retrying about every ${waitSec}s.`,
+    )
   }
 
   private registerDevice(device: WaterLeakDetector, locationId: number): void {
