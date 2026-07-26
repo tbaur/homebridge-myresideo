@@ -81,7 +81,7 @@ Use the Homebridge UI (recommended) or add the platform to your config:
 
 ### 4. Restart Homebridge
 
-Your detectors are discovered at startup and appear in the Home app automatically. If you add a new detector to your Honeywell Home account later, restart Homebridge to pick it up. If Resideo returns an empty or partial device list during a cloud outage, the plugin keeps cached accessories, keeps retrying discovery, and only removes a detector after it is missing from several consecutive non-empty discoveries (so a blip cannot wipe HomeKit).
+Your detectors are discovered at startup and appear in the Home app automatically. If you add a new detector to your Honeywell Home account later, restart Homebridge to pick it up. If Resideo returns an empty or partial device list during a cloud outage, the plugin keeps cached accessories, keeps retrying discovery, and only removes a detector after it is missing from several consecutive non-empty discoveries while the platform is stable (not degraded, breaker closed) — so a blip cannot wipe HomeKit.
 
 ## Supported Devices
 

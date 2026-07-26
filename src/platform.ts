@@ -309,11 +309,22 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
 
       this.pruneCorruptAccessories()
       const discoveredIds = new Set(detectors.map(d => d.device.deviceID))
-      this.reconcileMissingDetectors(discoveredIds)
+      const hasUnresolvedMissing = this.cachedDetectorIds().some(id => !discoveredIds.has(id))
 
-      // Partial lists keep polling what we have and re-discover until missing
-      // detectors are confirmed gone (or they reappear).
-      if (this.pendingRemovalCounts.size > 0) {
+      // Never advance stale-removal confirmations or unregister while unstable
+      // (degraded health, open breaker, or empty-discovery mode).
+      if (this.canSafelyRemoveStaleDetectors()) {
+        this.reconcileMissingDetectors(discoveredIds)
+      } else if (hasUnresolvedMissing) {
+        this.log.warn(
+          'Cloud list is missing cached detector(s) but the platform is unstable; '
+          + 'not removing accessories yet',
+        )
+      }
+
+      // Partial / unresolved lists keep polling what we have and re-discover
+      // until missing detectors are confirmed gone (or they reappear).
+      if (this.pendingRemovalCounts.size > 0 || hasUnresolvedMissing) {
         this.discoveryAttempt = 0
         await this.runPollCycle()
         this.startPolling()
@@ -500,11 +511,38 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   }
 
   /**
+   * Stale removal is allowed only when the platform looks stable: circuit breaker
+   * closed, not in empty-discovery retry, and diagnostics health is not degraded
+   * (API failures / token issues / polling stalled / empty discovery).
+   */
+  private canSafelyRemoveStaleDetectors(): boolean {
+    if (this.emptyDiscoveryActive) {
+      return false
+    }
+    const breakerState = this.client?.getStatus().circuitBreaker.state ?? 'CLOSED'
+    if (breakerState !== 'CLOSED') {
+      return false
+    }
+    if (this.diagnostics) {
+      const { health } = this.diagnostics.rollup(this.buildDiagnosticsReaders())
+      if (health === 'degraded') {
+        return false
+      }
+    }
+    return true
+  }
+
+  /**
    * Track detectors missing from a non-empty discovery and only unregister after
    * {@link STALE_REMOVAL_CONFIRMATIONS} consecutive omissions. A single partial
-   * cloud list must not wipe accessories.
+   * cloud list must not wipe accessories. Caller must ensure
+   * {@link canSafelyRemoveStaleDetectors} is true.
    */
   private reconcileMissingDetectors(discoveredIds: Set<string>): void {
+    if (!this.canSafelyRemoveStaleDetectors()) {
+      return
+    }
+
     for (const id of discoveredIds) {
       this.pendingRemovalCounts.delete(id)
     }
@@ -528,8 +566,20 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       )
     }
 
-    if (confirmed.length > 0) {
+    // Re-check immediately before unregister in case health flipped mid-loop.
+    if (confirmed.length > 0 && this.canSafelyRemoveStaleDetectors()) {
       this.unregisterAccessories(confirmed)
+    } else if (confirmed.length > 0) {
+      this.log.warn(
+        `Deferring removal of ${confirmed.length} detector(s); platform became unstable`,
+      )
+      for (const accessory of confirmed) {
+        const id = (accessory.context.device as WaterLeakDetector | undefined)?.deviceID
+        if (id) {
+          // Hold at the confirmation threshold without removing.
+          this.pendingRemovalCounts.set(id, STALE_REMOVAL_CONFIRMATIONS)
+        }
+      }
     }
   }
 

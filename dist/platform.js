@@ -237,10 +237,19 @@ class ResideoPlatform {
             }
             this.pruneCorruptAccessories();
             const discoveredIds = new Set(detectors.map(d => d.device.deviceID));
-            this.reconcileMissingDetectors(discoveredIds);
-            // Partial lists keep polling what we have and re-discover until missing
-            // detectors are confirmed gone (or they reappear).
-            if (this.pendingRemovalCounts.size > 0) {
+            const hasUnresolvedMissing = this.cachedDetectorIds().some(id => !discoveredIds.has(id));
+            // Never advance stale-removal confirmations or unregister while unstable
+            // (degraded health, open breaker, or empty-discovery mode).
+            if (this.canSafelyRemoveStaleDetectors()) {
+                this.reconcileMissingDetectors(discoveredIds);
+            }
+            else if (hasUnresolvedMissing) {
+                this.log.warn('Cloud list is missing cached detector(s) but the platform is unstable; '
+                    + 'not removing accessories yet');
+            }
+            // Partial / unresolved lists keep polling what we have and re-discover
+            // until missing detectors are confirmed gone (or they reappear).
+            if (this.pendingRemovalCounts.size > 0 || hasUnresolvedMissing) {
                 this.discoveryAttempt = 0;
                 await this.runPollCycle();
                 this.startPolling();
@@ -416,11 +425,36 @@ class ResideoPlatform {
         }));
     }
     /**
+     * Stale removal is allowed only when the platform looks stable: circuit breaker
+     * closed, not in empty-discovery retry, and diagnostics health is not degraded
+     * (API failures / token issues / polling stalled / empty discovery).
+     */
+    canSafelyRemoveStaleDetectors() {
+        if (this.emptyDiscoveryActive) {
+            return false;
+        }
+        const breakerState = this.client?.getStatus().circuitBreaker.state ?? 'CLOSED';
+        if (breakerState !== 'CLOSED') {
+            return false;
+        }
+        if (this.diagnostics) {
+            const { health } = this.diagnostics.rollup(this.buildDiagnosticsReaders());
+            if (health === 'degraded') {
+                return false;
+            }
+        }
+        return true;
+    }
+    /**
      * Track detectors missing from a non-empty discovery and only unregister after
      * {@link STALE_REMOVAL_CONFIRMATIONS} consecutive omissions. A single partial
-     * cloud list must not wipe accessories.
+     * cloud list must not wipe accessories. Caller must ensure
+     * {@link canSafelyRemoveStaleDetectors} is true.
      */
     reconcileMissingDetectors(discoveredIds) {
+        if (!this.canSafelyRemoveStaleDetectors()) {
+            return;
+        }
         for (const id of discoveredIds) {
             this.pendingRemovalCounts.delete(id);
         }
@@ -439,8 +473,19 @@ class ResideoPlatform {
             this.log.warn(`Detector ${accessory.displayName} missing from cloud `
                 + `(${count}/${settings_1.STALE_REMOVAL_CONFIRMATIONS}); not removing yet`);
         }
-        if (confirmed.length > 0) {
+        // Re-check immediately before unregister in case health flipped mid-loop.
+        if (confirmed.length > 0 && this.canSafelyRemoveStaleDetectors()) {
             this.unregisterAccessories(confirmed);
+        }
+        else if (confirmed.length > 0) {
+            this.log.warn(`Deferring removal of ${confirmed.length} detector(s); platform became unstable`);
+            for (const accessory of confirmed) {
+                const id = accessory.context.device?.deviceID;
+                if (id) {
+                    // Hold at the confirmation threshold without removing.
+                    this.pendingRemovalCounts.set(id, settings_1.STALE_REMOVAL_CONFIRMATIONS);
+                }
+            }
         }
     }
     unregisterAccessories(stale) {
