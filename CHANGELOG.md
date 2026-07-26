@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.4.4](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.3...v1.4.4) (2026-07-26)
+
+
+### Bug Fixes
+
+* block stale detector removal while the platform is unstable ([#70](https://github.com/tbaur/homebridge-myresideo/issues/70)) ([40c5fcf](https://github.com/tbaur/homebridge-myresideo/commit/40c5fcf26f826be5eb047ee17d36773f08b34279))
+
 ## [1.4.3](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.2...v1.4.3) (2026-07-26)
 
 
