@@ -19,7 +19,7 @@
 - ✅ Configurable polling (120s default, 30s minimum) with bounded concurrency and an in-flight guard
 - ✅ OAuth2 with token auto-refresh before expiry and on `401`, optimistic use of a supplied token
 - ✅ Built-in account-linking UI (custom Homebridge settings panel) that runs the OAuth2 flow and saves your tokens; a `get-tokens` script remains as a command-line fallback
-- ✅ OAuth2 `state` round-trip on account linking (UI and `get-tokens`) to reject mismatched redirects
+- ✅ OAuth2 `state` round-trip on account linking (UI and `get-tokens`) to reject mismatched redirects; the settings UI keeps CSRF `state` on the UI server only (not in browser storage)
 - ✅ Refresh + access tokens persisted atomically back to `config.json` after every successful refresh (cross-platform replace)
 - ✅ Automatic retry of transient network/timeout/5xx/429 errors (API and token refresh) with exponential backoff; both honor `Retry-After` when present
 - ✅ Circuit breaker for sustained Resideo API outages (fail-fast while open; single half-open probe after cooldown; transitions logged)

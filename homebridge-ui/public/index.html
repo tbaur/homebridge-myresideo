@@ -104,19 +104,8 @@
   <script>
     (async () => {
       const DEFAULT_REDIRECT_URI = 'http://localhost:8581/oauth/callback'
-      // Fallback authorize host if /oauth-meta has not been fetched yet. Prefer
-      // the value from the UI server (dist/settings) so the host stays in sync.
-      let authorizeUrlBase = 'https://api.honeywellhome.com/oauth2/authorize'
-      // CSRF state for the in-flight linking attempt (sessionStorage + exchange).
-      const OAUTH_STATE_KEY = 'resideo.oauth.state'
       const byId = id => document.getElementById(id)
       const log = (...args) => console.info('[resideo-ui]', ...args)
-
-      const generateOAuthState = () => {
-        const bytes = new Uint8Array(16)
-        crypto.getRandomValues(bytes)
-        return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-      }
 
       // config-ui-x dispatches 'ready' on the homebridge object once it has
       // spawned our server child and wired up the request/response bridge.
@@ -124,15 +113,11 @@
       // receives the request and replies, but config-ui-x has nowhere to route
       // the reply yet, so it is silently dropped and the call hangs. Register
       // the flag listener as early as possible so the signal is never missed.
+      // OAuth CSRF `state` lives only on the UI server (never sessionStorage).
       let homebridgeReady = false
       homebridge.addEventListener('ready', () => {
         homebridgeReady = true
         log('homebridge UI bridge ready')
-        homebridge.request('/oauth-meta').then((meta) => {
-          if (meta && typeof meta.authorizeUrl === 'string' && meta.authorizeUrl) {
-            authorizeUrlBase = meta.authorizeUrl
-          }
-        }).catch(() => {})
       })
 
       // homebridge.request()/savePluginConfig()/etc. all funnel through an
@@ -297,9 +282,9 @@
         }
         // Open synchronously so the popup stays tied to the click gesture, then
         // navigate after `/build-authorize-url` returns the shared authorize URL.
+        // CSRF `state` is retained on the UI server only (not in sessionStorage).
         const popup = window.open('about:blank', '_blank')
-        const showAuthorize = (authorizeUrl, state) => {
-          sessionStorage.setItem(OAUTH_STATE_KEY, state)
+        const showAuthorize = (authorizeUrl) => {
           authUrlLink.href = authorizeUrl
           authUrlLink.textContent = authorizeUrl
           authFallback.style.display = 'block'
@@ -310,42 +295,29 @@
             window.open(authorizeUrl, '_blank', 'noopener')
           }
         }
-        const buildLocally = () => {
-          const state = generateOAuthState()
-          const url = new URL(authorizeUrlBase)
-          url.searchParams.set('response_type', 'code')
-          url.searchParams.set('client_id', consumerKey)
-          url.searchParams.set('redirect_uri', redirectUri)
-          url.searchParams.set('state', state)
-          return { authorizeUrl: url.toString(), state }
-        }
         try {
-          if (await waitForReady()) {
-            const built = await withTimeout(
-              homebridge.request('/build-authorize-url', { consumerKey, redirectUri }),
-              8000,
-              'Building sign-in URL',
+          if (!(await waitForReady())) {
+            throw new Error(
+              'Could not reach the Homebridge UI service. Close this settings window and reopen it, then try again.',
             )
-            if (built && built.authorizeUrl && built.state) {
-              showAuthorize(built.authorizeUrl, built.state)
-              return
-            }
           }
-          const local = buildLocally()
-          showAuthorize(local.authorizeUrl, local.state)
+          const built = await withTimeout(
+            homebridge.request('/build-authorize-url', { consumerKey, redirectUri }),
+            8000,
+            'Building sign-in URL',
+          )
+          if (!built || !built.authorizeUrl) {
+            throw new Error('Could not build the sign-in URL — check your Redirect URL.')
+          }
+          showAuthorize(built.authorizeUrl)
         } catch (err) {
-          try {
-            const local = buildLocally()
-            showAuthorize(local.authorizeUrl, local.state)
-          } catch {
-            if (popup && !popup.closed) {
-              popup.close()
-            }
-            homebridge.toast.error(
-              err && err.message ? err.message : 'Could not build the sign-in URL — check your Redirect URL.',
-              'Could not start sign-in',
-            )
+          if (popup && !popup.closed) {
+            popup.close()
           }
+          homebridge.toast.error(
+            err && err.message ? err.message : 'Could not build the sign-in URL — check your Redirect URL.',
+            'Could not start sign-in',
+          )
         }
       })
 
@@ -371,24 +343,18 @@
             throw new Error('Could not reach the Homebridge UI service. Close this settings window and reopen it, then try again.')
           }
           log('exchanging authorization code')
-          const expectedState = sessionStorage.getItem(OAUTH_STATE_KEY)
-          if (!expectedState) {
-            throw new Error(
-              'Linking state is missing. Click Open Resideo sign-in again, then paste the full redirect URL.',
-            )
-          }
+          // CSRF `state` is verified on the UI server against the value issued
+          // by `/build-authorize-url` — the browser never stores or sends it.
           const tokens = await withTimeout(
             homebridge.request('/exchange-code', {
               consumerKey,
               consumerSecret,
               redirectUri,
               pastedValue,
-              expectedState,
             }),
             EXCHANGE_TIMEOUT_MS,
             'Token exchange',
           )
-          sessionStorage.removeItem(OAUTH_STATE_KEY)
           log('exchange succeeded; writing config')
           const block = ensureBlock()
           block.credentials = Object.assign({}, block.credentials, {
