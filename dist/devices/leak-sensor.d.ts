@@ -60,6 +60,10 @@ export declare class LeakSensorAccessory {
      * is the wall-clock duration of the poll request that produced this payload,
      * used only to annotate the per-check-in report; it is absent for the initial
      * constructor observation.
+     *
+     * A payload without a `deviceID` is ignored rather than applied: the client and
+     * discovery both reject those, so reaching here means something upstream changed,
+     * and caching one would corrupt `context.device` and cost the user this accessory.
      */
     updateStatus(device: WaterLeakDetector, latencyMs?: number): void;
     /**

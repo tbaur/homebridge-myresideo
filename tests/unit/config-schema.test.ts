@@ -14,9 +14,17 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import {
+  MAX_DIAGNOSTICS_INTERVAL_SEC,
+  MAX_REFRESH_RATE_SEC,
+  MIN_REFRESH_RATE_SEC,
+} from '../../src/settings'
+
 interface SchemaProperty {
   type?: string
   required?: unknown
+  minimum?: number
+  maximum?: number
   properties?: Record<string, SchemaProperty>
   items?: SchemaProperty
 }
@@ -111,5 +119,34 @@ describe('config.schema.json', () => {
       .filter(([, prop]) => 'default' in prop)
       .map(([key]) => key)
     expect(withDefaults).toEqual([])
+  })
+
+  it('does not require credential fields at the schema level (enforced at startup instead)', () => {
+    // The linking UI seeds `credentials: {}` before tokens exist, and config-ui-x
+    // validates the whole platform block on Save. Requiring fields here would
+    // reject Save-before-link / fresh installs; validateConfig still fails fast
+    // at plugin startup when they are missing.
+    expect(schema.schema.properties.credentials?.required).toBeUndefined()
+  })
+
+  it.each([
+    ['refreshRate', MIN_REFRESH_RATE_SEC, MAX_REFRESH_RATE_SEC],
+    ['diagnosticsInterval', 0, MAX_DIAGNOSTICS_INTERVAL_SEC],
+  ])('bounds options.%s in both directions to match the runtime clamp', (field, min, max) => {
+    // An unbounded interval is a real hazard, not just untidy: Node clamps any
+    // setInterval delay above 2^31-1 ms down to 1 ms, turning a typo into a tight
+    // poll loop. The form must not offer a value the runtime has to clamp away.
+    const prop = schema.schema.properties.options?.properties?.[field]
+    expect(prop?.minimum).toBe(min)
+    expect(prop?.maximum).toBe(max)
+  })
+
+  it.each([
+    ['options.freezeThresholdCelsius', () => schema.schema.properties.options?.properties?.freezeThresholdCelsius],
+    ['per-device freezeThresholdCelsius', () => schema.schema.properties.options?.properties?.devices?.items?.properties?.freezeThresholdCelsius],
+  ])('bounds %s to the range validateConfig accepts', (_label, read) => {
+    const prop = read()
+    expect(prop?.minimum).toBe(-40)
+    expect(prop?.maximum).toBe(40)
   })
 })

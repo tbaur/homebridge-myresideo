@@ -4,6 +4,8 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ## Getting Started
 
+You need **Node.js 20 or newer** (the version range the plugin declares in `engines`). CI runs the test suite on Node 20, 22, and 24, so anything you land must pass on all three.
+
 1. Fork the repository
 2. Clone your fork:
    ```bash

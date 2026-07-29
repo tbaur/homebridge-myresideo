@@ -14,6 +14,7 @@ export {
   isFreezing,
   clampBatteryLevel,
   isWaterLeakDetector,
+  hasUsableDeviceId,
   isDeviceActive,
   hasActiveAlarms,
   activeAlarmTypes,

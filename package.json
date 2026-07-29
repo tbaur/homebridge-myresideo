@@ -74,13 +74,14 @@
     "test:watch": "NODE_ENV=test jest --watch",
     "test:unit": "npm run build && NODE_ENV=test jest --coverage --testPathPattern=tests/unit",
     "test:integration": "npm run build && NODE_ENV=test jest --testPathPattern=tests/integration --collectCoverage=false",
-    "lint": "eslint . --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
-    "lint:fix": "eslint . --fix --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
+    "lint": "eslint . --max-warnings 0 --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
+    "lint:fix": "eslint . --fix --max-warnings 0 --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
   },
   "files": [
     "dist/**/*",
     "homebridge-ui",
     "config.schema.json",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ]

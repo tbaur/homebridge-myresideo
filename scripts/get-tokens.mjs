@@ -37,6 +37,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const DEFAULT_REDIRECT_URI = 'http://localhost:8581/oauth/callback'
 
+/**
+ * How long to wait for the browser redirect before giving up. Without a deadline an
+ * abandoned sign-in leaves this script (and its listening socket) hanging forever.
+ */
+const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DIST_AUTH = resolve(HERE, '..', 'dist', 'api', 'auth.js')
 
@@ -100,6 +106,12 @@ function captureAuthorizationCode(redirectUri, authorizeUrl) {
   const expectedPath = url.pathname
 
   return new Promise((resolvePromise, rejectPromise) => {
+    let timeoutTimer
+    const settle = (fn, value) => {
+      clearTimeout(timeoutTimer)
+      fn(value)
+    }
+
     const server = createServer((req, res) => {
       const requestUrl = new URL(req.url ?? '/', `http://${url.host}`)
       if (requestUrl.pathname !== expectedPath) {
@@ -127,24 +139,31 @@ function captureAuthorizationCode(redirectUri, authorizeUrl) {
 
       if (error) {
         finish(false)
-        rejectPromise(new Error(`Authorization was denied or failed: ${error}`))
+        settle(rejectPromise, new Error(`Authorization was denied or failed: ${error}`))
         return
       }
       if (!code) {
         finish(false)
-        rejectPromise(new Error('Redirect did not include an authorization code'))
+        settle(rejectPromise, new Error('Redirect did not include an authorization code'))
         return
       }
       finish(true)
-      resolvePromise({ code, state })
+      settle(resolvePromise, { code, state })
     })
 
-    server.on('error', rejectPromise)
+    server.on('error', err => settle(rejectPromise, err))
     server.listen(port, url.hostname, () => {
       stdout.write(`\nListening for the redirect on ${redirectUri}\n`)
       stdout.write('Opening your browser to authorize...\n')
       stdout.write(`If it does not open, paste this URL manually:\n\n${authorizeUrl}\n\n`)
       openBrowser(authorizeUrl)
+      timeoutTimer = setTimeout(() => {
+        server.close()
+        rejectPromise(new Error(
+          `Timed out after ${Math.round(CALLBACK_TIMEOUT_MS / 1000)}s waiting for the Resideo redirect. `
+          + 'Run the command again to retry.',
+        ))
+      }, CALLBACK_TIMEOUT_MS)
     })
   })
 }

@@ -33,6 +33,30 @@ function readPluginVersion() {
     }
 }
 const PLUGIN_VERSION = readPluginVersion();
+/** How many times to rewrite config.json if a concurrent save clobbers the new tokens. */
+const TOKEN_PERSIST_MAX_ATTEMPTS = 3;
+/** Clamp a configured interval into the range a timer can represent safely. */
+function clampSeconds(seconds, min, max) {
+    return Math.min(Math.max(seconds, min), max);
+}
+/**
+ * Write `contents` to `path` and flush it to disk before returning.
+ *
+ * `fs.writeFile` closes its handle without an fsync, so the data may still be in
+ * the page cache when the follow-up rename publishes the file. A crash in that
+ * window would leave a truncated config — and since the whole file is rewritten,
+ * that costs the user every platform's settings, not just these tokens.
+ */
+async function writeFileDurable(path, contents) {
+    const handle = await node_fs_1.promises.open(path, 'w');
+    try {
+        await handle.writeFile(contents, 'utf8');
+        await handle.sync();
+    }
+    finally {
+        await handle.close();
+    }
+}
 class ResideoPlatform {
     log;
     api;
@@ -126,9 +150,11 @@ class ResideoPlatform {
             this.stopDiagnostics();
             if (this.pollTimer) {
                 clearInterval(this.pollTimer);
+                this.pollTimer = undefined;
             }
             if (this.discoveryTimer) {
                 clearTimeout(this.discoveryTimer);
+                this.discoveryTimer = undefined;
             }
         });
     }
@@ -150,14 +176,16 @@ class ResideoPlatform {
         this.accessories.push(accessory);
     }
     get refreshRateMs() {
-        // A non-numeric/NaN refreshRate (e.g. a stray string in config.json) must
-        // never reach setInterval: Math.max(NaN, min) is NaN, which setInterval
-        // coerces to 0 and would hammer the API. Fall back to the default instead.
+        // Both ends of the range are hazards, and both collapse to a tight poll loop.
+        // A non-finite refreshRate (a stray string, or Infinity) must never reach
+        // setInterval, since Math.max(NaN, min) is NaN which setInterval coerces to 0;
+        // and Node clamps any delay above 2^31-1 ms to 1 ms. So fall back to the
+        // default for non-numbers, then clamp into the supported range.
         const configured = this.config.options?.refreshRate;
-        const seconds = typeof configured === 'number' && !Number.isNaN(configured)
+        const seconds = typeof configured === 'number' && Number.isFinite(configured)
             ? configured
             : settings_1.DEFAULT_REFRESH_RATE_SEC;
-        return Math.max(seconds, settings_1.MIN_REFRESH_RATE_SEC) * 1000;
+        return clampSeconds(seconds, settings_1.MIN_REFRESH_RATE_SEC, settings_1.MAX_REFRESH_RATE_SEC) * 1000;
     }
     async discoverDevices() {
         if (!this.client || this.stopped) {
@@ -173,9 +201,18 @@ class ResideoPlatform {
             const detectors = [];
             for (const location of locations) {
                 for (const device of location.devices ?? []) {
-                    if ((0, utils_1.isWaterLeakDetector)(device)) {
-                        detectors.push({ device, locationId: location.locationID });
+                    if (!(0, utils_1.isWaterLeakDetector)(device)) {
+                        continue;
                     }
+                    // A detector with no deviceID cannot be mapped to a stable accessory:
+                    // registering it would produce an accessory that pruneCorruptAccessories
+                    // later deletes. Skip it and say so rather than churning HomeKit.
+                    if (!(0, utils_1.hasUsableDeviceId)(device)) {
+                        this.log.warn(`Skipping a leak detector in location ${location.locationID} that Resideo `
+                            + 'reported without a deviceID; it cannot be mapped to a HomeKit accessory.');
+                        continue;
+                    }
+                    detectors.push({ device, locationId: location.locationID });
                 }
             }
             // After a few empty retries, keep looking but stop spamming per-attempt
@@ -498,20 +535,35 @@ class ResideoPlatform {
             if (index !== -1) {
                 this.accessories.splice(index, 1);
             }
-            const device = accessory.context.device;
-            if (device?.deviceID) {
-                this.handlers.delete(device.deviceID);
-                this.locationByDevice.delete(device.deviceID);
-                this.pendingRemovalCounts.delete(device.deviceID);
+            const cachedId = accessory.context.device?.deviceID;
+            // A corrupt entry has lost its deviceID, so fall back to a UUID reverse
+            // lookup: leaving the handler/location entries behind would keep polling a
+            // detector that no longer exists in HomeKit and skew the device gauges.
+            const deviceID = cachedId || this.trackedDeviceIdForUuid(accessory.UUID);
+            if (deviceID) {
+                this.handlers.delete(deviceID);
+                this.locationByDevice.delete(deviceID);
+                this.pendingRemovalCounts.delete(deviceID);
                 // Forget the boot-summary marker so a detector that later returns to the
                 // account is reported again rather than being silently re-added.
-                this.bootSummaryLogged.delete(device.deviceID);
+                this.bootSummaryLogged.delete(deviceID);
+            }
+            if (cachedId) {
                 this.log.info(`Removed stale water leak detector: ${accessory.displayName}`);
             }
             else {
                 this.log.warn(`Removed cached accessory without a deviceID: ${accessory.displayName}`);
             }
         }
+    }
+    /** Tracked device ID whose generated accessory UUID matches `uuid`, if any. */
+    trackedDeviceIdForUuid(uuid) {
+        for (const deviceID of this.handlers.keys()) {
+            if (this.api.hap.uuid.generate(`${settings_1.UUID_PREFIX}${deviceID}`) === uuid) {
+                return deviceID;
+            }
+        }
+        return undefined;
     }
     optionsForDevice(deviceID) {
         const override = this.config.options?.devices?.find(d => d.deviceID === deviceID);
@@ -646,10 +698,10 @@ class ResideoPlatform {
     /** Diagnostics heartbeat interval in milliseconds (0 when disabled). */
     diagnosticsIntervalMs() {
         const seconds = this.config.options?.diagnosticsInterval;
-        if (typeof seconds !== 'number' || Number.isNaN(seconds) || seconds <= 0) {
+        if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
             return 0;
         }
-        return Math.max(seconds, settings_1.MIN_DIAGNOSTICS_INTERVAL_SEC) * 1000;
+        return clampSeconds(seconds, settings_1.MIN_DIAGNOSTICS_INTERVAL_SEC, settings_1.MAX_DIAGNOSTICS_INTERVAL_SEC) * 1000;
     }
     /** Effective polling cadence in seconds (mirrors refreshRateMs clamping). */
     pollingCadenceSeconds() {
@@ -777,36 +829,72 @@ class ResideoPlatform {
      * survive a Homebridge restart. Rewrites the whole config file as pretty-printed
      * JSON (4-space indent) for the matching platform block — other platforms'
      * values are preserved, but key order/formatting for the file may change.
-     * Writes atomically (temp file + rename; on Windows, rename-aside then promote
-     * with restore-on-failure) so a crash cannot leave a half-written config and
-     * never deletes the live config before the new file is in place. A failure
-     * here is serious — tokens may only be in memory — so it is logged at error
-     * with that consequence spelled out, but never thrown (refresh already succeeded).
+     *
+     * Writes atomically and durably (fsync before rename; Windows rename-aside with
+     * restore-on-failure). Token refresh is single-flight, so this never races
+     * itself. Against an interleaved Homebridge Config UI X save of the same file,
+     * each attempt re-reads immediately before writing (so unrelated option edits
+     * are not clobbered from a stale snapshot) and re-reads after promoting to
+     * confirm the tokens landed; if Config UI X overwrote them, the write is
+     * retried a few times.
+     *
+     * A failure here is serious — tokens may only be in memory — so it is logged at
+     * error with that consequence spelled out, but never thrown (refresh succeeded).
      */
     async persistTokens(tokens) {
         this.config.credentials.refreshToken = tokens.refreshToken;
         this.config.credentials.accessToken = tokens.accessToken;
+        const configPath = this.api.user.configPath();
         try {
-            const configPath = this.api.user.configPath();
-            const raw = await node_fs_1.promises.readFile(configPath, 'utf8');
-            const parsed = JSON.parse(raw);
-            const blocks = parsed.platforms?.filter(p => p.platform === settings_1.PLATFORM_NAME) ?? [];
-            const block = this.selectConfigBlock(blocks);
-            if (!block?.credentials) {
-                this.log.error('Could not persist tokens: this platform block was not found in config.json. '
-                    + 'A future Homebridge restart may require re-linking your account.');
-                return;
+            for (let attempt = 1; attempt <= TOKEN_PERSIST_MAX_ATTEMPTS; attempt++) {
+                const raw = await node_fs_1.promises.readFile(configPath, 'utf8');
+                const parsed = JSON.parse(raw);
+                const blocks = parsed.platforms?.filter(p => p.platform === settings_1.PLATFORM_NAME) ?? [];
+                const block = this.selectConfigBlock(blocks);
+                if (!block?.credentials) {
+                    this.log.error('Could not persist tokens: this platform block was not found in config.json. '
+                        + 'A future Homebridge restart may require re-linking your account.');
+                    return;
+                }
+                block.credentials.refreshToken = tokens.refreshToken;
+                block.credentials.accessToken = tokens.accessToken;
+                const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+                await writeFileDurable(tempPath, JSON.stringify(parsed, null, 4));
+                await this.replaceConfigFile(tempPath, configPath);
+                if (await this.configHasTokens(configPath, tokens)) {
+                    this.log.debug('Persisted refresh and access tokens to config.json');
+                    return;
+                }
+                if (attempt < TOKEN_PERSIST_MAX_ATTEMPTS) {
+                    this.log.warn('Token persist was overwritten before it could be confirmed; retrying '
+                        + `(attempt ${attempt}/${TOKEN_PERSIST_MAX_ATTEMPTS})`);
+                }
             }
-            block.credentials.refreshToken = tokens.refreshToken;
-            block.credentials.accessToken = tokens.accessToken;
-            const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
-            await node_fs_1.promises.writeFile(tempPath, JSON.stringify(parsed, null, 4), 'utf8');
-            await this.replaceConfigFile(tempPath, configPath);
-            this.log.debug('Persisted refresh and access tokens to config.json');
+            this.log.error('Could not persist tokens: config.json did not retain the new tokens after '
+                + `${TOKEN_PERSIST_MAX_ATTEMPTS} attempts. `
+                + 'A future Homebridge restart may require re-linking your account.');
         }
         catch (err) {
             this.log.error(`Could not persist tokens: ${(0, utils_1.sanitizeError)(err)}. `
                 + 'A future Homebridge restart may require re-linking your account.');
+        }
+    }
+    /**
+     * True when `configPath` currently stores exactly the given tokens on this
+     * platform block. Used to detect a lost race against Config UI X saving over
+     * the just-promoted file.
+     */
+    async configHasTokens(configPath, tokens) {
+        try {
+            const raw = await node_fs_1.promises.readFile(configPath, 'utf8');
+            const parsed = JSON.parse(raw);
+            const blocks = parsed.platforms?.filter(p => p.platform === settings_1.PLATFORM_NAME) ?? [];
+            const block = this.selectConfigBlock(blocks);
+            return block?.credentials?.refreshToken === tokens.refreshToken
+                && block?.credentials?.accessToken === tokens.accessToken;
+        }
+        catch {
+            return false;
         }
     }
     /**
@@ -891,23 +979,26 @@ function formatReasons(reasons) {
 }
 /** Build the concise human-readable summary line for a diagnostics report. */
 function formatDiagnosticLine(report) {
-    const { lifecycle, devices, circuitBreaker, polling, token, api, activity } = report;
+    const { lifecycle, devices, circuitBreaker, polling, api, activity } = report;
     const reasonText = formatReasons(lifecycle.reasons);
     const pollDuration = polling.lastDurationMs === null ? 'n/a' : `${polling.lastDurationMs}ms`;
-    const tokenExp = token.expiresInSec === null ? 'n/a' : `${token.expiresInSec}s`;
-    // This plugin is polling-only, so each device poll is exactly one API request:
-    // `api.requests`/`api.errors` would merely restate the poll counts plus the
-    // retried transient failures. The human line therefore reports the poll
-    // outcome once, surfaces the retry count (the only extra signal `err` carried),
-    // keeps only the latency percentiles from the API metrics, and includes the
-    // circuit-breaker state so outages are visible without enabling debug logs.
-    // Raw request/error totals remain in the structured-JSON report for parsers.
-    return (`${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText} | `
-        + `detectors ${devices.online}/${devices.total} online (${devices.leak} leak) | `
-        + `breaker ${circuitBreaker.state} | `
-        + `poll ${pollDuration} ok ${polling.ok} failed ${polling.failed} retried ${activity.retries} | `
-        + `latency p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms | `
-        + `token exp ${tokenExp}`);
+    // Keep the healthy-path line short. Leak count and breaker state only appear
+    // when they carry signal (an active leak, or a breaker that is not CLOSED);
+    // token expiry and zero leak/CLOSED breaker stay in the structured-JSON report
+    // for parsers. This plugin is polling-only, so each device poll is one API
+    // request: report poll outcome once and keep only the latency percentiles as
+    // the API signal.
+    const parts = [
+        `${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText}`,
+        devices.leak > 0
+            ? `devices ${devices.online}/${devices.total} (${devices.leak} leak)`
+            : `devices ${devices.online}/${devices.total}`,
+    ];
+    if (circuitBreaker.state !== 'CLOSED') {
+        parts.push(`breaker ${circuitBreaker.state}`);
+    }
+    parts.push(`poll ${pollDuration} ok ${polling.ok} failed ${polling.failed} retried ${activity.retries}`, `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms`);
+    return parts.join(' | ');
 }
 /**
  * Concise health-transition notice: state and reasons only. The heartbeat that

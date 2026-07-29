@@ -15,6 +15,7 @@ exports.resolveFreezeThreshold = resolveFreezeThreshold;
 exports.isFreezing = isFreezing;
 exports.clampBatteryLevel = clampBatteryLevel;
 exports.isWaterLeakDetector = isWaterLeakDetector;
+exports.hasUsableDeviceId = hasUsableDeviceId;
 exports.hasActiveAlarms = hasActiveAlarms;
 exports.activeAlarmTypes = activeAlarmTypes;
 exports.isDeviceActive = isDeviceActive;
@@ -71,6 +72,15 @@ function clampBatteryLevel(batteryRemaining) {
 /** Identify whether an API device record is a water leak detector. */
 function isWaterLeakDetector(device) {
     return device.deviceClass === settings_1.LEAK_DETECTOR_DEVICE_CLASS;
+}
+/**
+ * True when a device record carries the `deviceID` the platform depends on. The ID
+ * seeds the accessory UUID, keys the handler map, and distinguishes a real detector
+ * from a corrupt cache entry, so a record without one cannot be registered or
+ * cached — it would later be pruned and unregister the accessory from HomeKit.
+ */
+function hasUsableDeviceId(device) {
+    return typeof device.deviceID === 'string' && device.deviceID !== '';
 }
 /**
  * True when the device reports at least one active alarm (e.g. HighTemperature,

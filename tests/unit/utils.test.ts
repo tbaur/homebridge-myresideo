@@ -10,6 +10,7 @@ import {
   clampBatteryLevel,
   describeDeviceState,
   hasActiveAlarms,
+  hasUsableDeviceId,
   isDeviceActive,
   isFreezing,
   isLeakDetected,
@@ -103,6 +104,19 @@ describe('isWaterLeakDetector', () => {
   it('matches the LeakDetector device class', () => {
     expect(isWaterLeakDetector({ deviceClass: 'LeakDetector' })).toBe(true)
     expect(isWaterLeakDetector({ deviceClass: 'Thermostat' })).toBe(false)
+  })
+})
+
+describe('hasUsableDeviceId', () => {
+  it('accepts a non-empty string id', () => {
+    expect(hasUsableDeviceId({ deviceID: 'LCC-001' })).toBe(true)
+  })
+
+  it('rejects a missing, empty, or non-string id', () => {
+    expect(hasUsableDeviceId({} as WaterLeakDetector)).toBe(false)
+    expect(hasUsableDeviceId({ deviceID: '' })).toBe(false)
+    expect(hasUsableDeviceId({ deviceID: undefined } as unknown as WaterLeakDetector)).toBe(false)
+    expect(hasUsableDeviceId({ deviceID: 123 } as unknown as WaterLeakDetector)).toBe(false)
   })
 })
 

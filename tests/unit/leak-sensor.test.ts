@@ -124,6 +124,48 @@ function build(device: WaterLeakDetector, options: LeakDetectorOptions = { devic
   return { handler, accessory, log, recordStateChange }
 }
 
+describe('LeakSensorAccessory payload guard', () => {
+  // The client and discovery both reject deviceID-less payloads, so this is the
+  // last line of defence: caching one would corrupt context.device, and a cached
+  // record without a deviceID is pruned — losing the user's HomeKit accessory.
+  const unusablePayloads: Array<[string, unknown]> = [
+    ['an empty object', {}],
+    ['an empty deviceID', { deviceID: '', waterPresent: true }],
+    ['a non-string deviceID', { deviceID: 123, waterPresent: true }],
+  ]
+
+  it.each(unusablePayloads)('does not cache %s', (_label, payload) => {
+    const good = baseDevice({ waterPresent: false })
+    const { handler, accessory, log } = build(good)
+
+    handler.updateStatus(payload as WaterLeakDetector)
+
+    // The last good reading is retained rather than replaced with junk.
+    expect(accessory.context.device).toBe(good)
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('no deviceID'))
+  })
+
+  it('leaves HomeKit characteristics on their last known values', () => {
+    const { handler, accessory } = build(baseDevice({ waterPresent: true, batteryRemaining: 80 }))
+    const leak = accessory.services.get(Service.LeakSensor)
+    const battery = accessory.services.get(Service.Battery)
+
+    handler.updateStatus({} as WaterLeakDetector)
+
+    expect(latestValue(leak, Characteristic.LeakDetected)).toBe(Characteristic.LeakDetected.LEAK_DETECTED)
+    expect(latestValue(battery, Characteristic.BatteryLevel)).toBe(80)
+  })
+
+  it('still applies a payload that carries a usable deviceID', () => {
+    const { handler, accessory } = build(baseDevice({ waterPresent: false }))
+    const next = baseDevice({ waterPresent: true })
+
+    handler.updateStatus(next)
+
+    expect(accessory.context.device).toBe(next)
+  })
+})
+
 describe('LeakSensorAccessory', () => {
   it('reflects leak-detected state', () => {
     const { accessory } = build(baseDevice({ waterPresent: true }))

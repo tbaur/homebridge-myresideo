@@ -172,6 +172,51 @@ describe('ResideoApiClient', () => {
     expect(capturedUrl).toContain('apikey=my-api-key')
   })
 
+  // A 200 body that parses but is not a usable detector record must never be
+  // returned: the platform caches it on the accessory, and a record without a
+  // deviceID is later pruned as corrupt, unregistering it from HomeKit.
+  describe('detector payload validation', () => {
+    const unusableBodies: Array<[string, string]> = [
+      ['null', 'null'],
+      ['an empty object', '{}'],
+      ['an array', '[]'],
+      ['an object with no deviceID', JSON.stringify({ waterPresent: false, batteryRemaining: 90 })],
+      ['an object with an empty deviceID', JSON.stringify({ deviceID: '', waterPresent: false })],
+      ['a gateway error object', JSON.stringify({ message: 'Forbidden', code: 401 })],
+    ]
+
+    it.each(unusableBodies)('rejects a 200 body that is %s', async (_label, body) => {
+      const transport = jest.fn().mockResolvedValue({ status: 200, body })
+      const { client } = makeClient(transport, stubTokenManager(), { maxRetryAttempts: 1 })
+
+      await expect(client.getWaterLeakDetector('abc-123', 5555)).rejects.toThrow(ApiParseError)
+    })
+
+    it('accepts a minimal payload that carries a deviceID', async () => {
+      const transport = jest.fn().mockResolvedValue({
+        status: 200,
+        body: JSON.stringify({ deviceID: 'abc-123', waterPresent: true }),
+      })
+      const { client } = makeClient(transport)
+
+      await expect(client.getWaterLeakDetector('abc-123', 5555))
+        .resolves.toEqual({ deviceID: 'abc-123', waterPresent: true })
+    })
+
+    it('counts an unusable payload as a breaker failure, not a success', async () => {
+      const transport = jest.fn().mockResolvedValue({ status: 200, body: '{}' })
+      const { client } = makeClient(transport, stubTokenManager(), {
+        maxRetryAttempts: 1,
+        circuitBreaker: { failureThreshold: 2 },
+      })
+
+      await expect(client.getWaterLeakDetector('a', 1)).rejects.toThrow(ApiParseError)
+      await expect(client.getWaterLeakDetector('a', 1)).rejects.toThrow(ApiParseError)
+
+      expect(client.getStatus().circuitBreaker.state).toBe(CircuitState.OPEN)
+    })
+  })
+
   describe('diagnostics hooks', () => {
     it('reports one successful metric per networked attempt', async () => {
       const metrics = jest.fn()

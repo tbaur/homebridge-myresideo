@@ -8,7 +8,7 @@
  * @fileoverview Utility barrel exports.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sanitizeFreezeThreshold = exports.validateConfig = exports.sanitizeError = exports.sanitizeString = exports.parseRetryAfterMs = exports.delay = exports.backoffMs = exports.describeDeviceState = exports.activeAlarmTypes = exports.hasActiveAlarms = exports.isDeviceActive = exports.isWaterLeakDetector = exports.clampBatteryLevel = exports.isFreezing = exports.resolveFreezeThreshold = exports.isLowBattery = exports.isLeakDetected = void 0;
+exports.sanitizeFreezeThreshold = exports.validateConfig = exports.sanitizeError = exports.sanitizeString = exports.parseRetryAfterMs = exports.delay = exports.backoffMs = exports.describeDeviceState = exports.activeAlarmTypes = exports.hasActiveAlarms = exports.isDeviceActive = exports.hasUsableDeviceId = exports.isWaterLeakDetector = exports.clampBatteryLevel = exports.isFreezing = exports.resolveFreezeThreshold = exports.isLowBattery = exports.isLeakDetected = void 0;
 var mappers_1 = require("./mappers");
 Object.defineProperty(exports, "isLeakDetected", { enumerable: true, get: function () { return mappers_1.isLeakDetected; } });
 Object.defineProperty(exports, "isLowBattery", { enumerable: true, get: function () { return mappers_1.isLowBattery; } });
@@ -16,6 +16,7 @@ Object.defineProperty(exports, "resolveFreezeThreshold", { enumerable: true, get
 Object.defineProperty(exports, "isFreezing", { enumerable: true, get: function () { return mappers_1.isFreezing; } });
 Object.defineProperty(exports, "clampBatteryLevel", { enumerable: true, get: function () { return mappers_1.clampBatteryLevel; } });
 Object.defineProperty(exports, "isWaterLeakDetector", { enumerable: true, get: function () { return mappers_1.isWaterLeakDetector; } });
+Object.defineProperty(exports, "hasUsableDeviceId", { enumerable: true, get: function () { return mappers_1.hasUsableDeviceId; } });
 Object.defineProperty(exports, "isDeviceActive", { enumerable: true, get: function () { return mappers_1.isDeviceActive; } });
 Object.defineProperty(exports, "hasActiveAlarms", { enumerable: true, get: function () { return mappers_1.hasActiveAlarms; } });
 Object.defineProperty(exports, "activeAlarmTypes", { enumerable: true, get: function () { return mappers_1.activeAlarmTypes; } });

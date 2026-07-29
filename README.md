@@ -12,7 +12,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 ## Features
 
 ### Device Support
-- **Automatic Discovery** — At startup, finds every water leak detector across all locations on your account, and removes detectors that disappear from your account (restart Homebridge to pick up newly-added detectors)
+- **Automatic Discovery** — At startup, finds every water leak detector across all locations on your account, and removes detectors only after they are confirmed gone from it (restart Homebridge to pick up newly-added detectors)
 - **Leak Detection** — HomeKit Leak Sensor that reflects the water-present state on each polling cycle (default every 120s; see [polling](#configuration-options))
 - **Temperature & Humidity** — Exposed as standard HomeKit sensors (each can be hidden); a missing reading is flagged as a fault rather than shown as a stale value
 - **Battery** — Battery level plus low-battery status
@@ -29,7 +29,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Clear Re-Link Signaling** — An expired/invalid refresh token, or rejected API credentials, produce a clear, actionable log message instead of a silent failure loop (including once per poll cycle after discovery)
 - **Readable Logs** — Each poll logs only what changed (leak, online/offline, low battery, freeze, alarms) once per transition; routine poll misses stay at debug; outages surface via circuit-breaker transitions rather than per-device error spam
 - **Per-Check-In Reports** — Each detector reports to the cloud on its configured schedule (the Resideo app's 1–3×/day update frequency); polling asks Resideo for the latest cloud snapshot more often than devices typically upload, and when `lastCheckin` advances the plugin logs a one-line summary — prefixed with that detector's name — of its current readings and poll latency
-- **Health Diagnostics** *(opt-in)* — Set `diagnosticsInterval` to log a periodic health report: API latency (p50/p95), poll success/failure, circuit-breaker state, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup with reasons (including empty-discovery retries, which do not trip the circuit breaker). Healthy↔degraded transitions are logged as they happen, and `structuredLogs` adds a machine-readable JSON line alongside the human summary
+- **Health Diagnostics** *(opt-in)* — Set `diagnosticsInterval` to log a periodic health report: device online count, poll success/failure, and API latency (p50/p95), with a `healthy`/`degraded` rollup. An active leak and a non-CLOSED circuit breaker appear only when they carry signal; token expiry and full counters stay in the optional structured JSON. Healthy↔degraded transitions are logged as they happen, and `structuredLogs` adds a machine-readable JSON line alongside the human summary
 - **Secret Hygiene** — Credentials are never logged; API error messages never include query strings or the `apikey`
 
 ### Quality
@@ -98,9 +98,9 @@ Your detectors are discovered at startup and appear in the Home app automaticall
 | `credentials.consumerSecret` | ✓ | Resideo developer application API Secret |
 | `credentials.refreshToken` | ✓ | OAuth2 refresh token (set when linking your account) |
 | `credentials.accessToken` | | OAuth2 access token (set when linking your account) |
-| `options.refreshRate` | | Seconds between status polls (default: 120, minimum: 30) |
-| `options.freezeThresholdCelsius` | | Default freeze threshold in °C. Leave unset to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence. |
-| `options.diagnosticsInterval` | | Seconds between opt-in health-report log lines; `0` (default) disables it. A non-zero value below 30 is clamped up to 30. |
+| `options.refreshRate` | | Seconds between status polls (default: 120, minimum: 30, maximum: 86400). Out-of-range values are clamped; a non-numeric value falls back to the default. |
+| `options.freezeThresholdCelsius` | | Default freeze threshold in °C, between -40 and 40 (values outside that range are ignored). Leave unset to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence. |
+| `options.diagnosticsInterval` | | Seconds between opt-in health-report log lines; `0` (default) disables it. A non-zero value below 30 is clamped up to 30, and the maximum is 86400. |
 | `options.structuredLogs` | | When diagnostics are enabled, also emit a machine-readable JSON line alongside the human-readable summary (default: false) |
 | `options.devices[]` | | Per-device overrides (see below) |
 
@@ -113,7 +113,7 @@ Per-device overrides (`options.devices[]`), keyed by `deviceID`:
 | `hideTemperatureSensor` | | Hide the temperature sensor service |
 | `hideHumiditySensor` | | Hide the humidity sensor service |
 | `enableFreezeSensor` | | Expose a freeze contact sensor for this device |
-| `freezeThresholdCelsius` | | Freeze threshold override in °C for this device |
+| `freezeThresholdCelsius` | | Freeze threshold override in °C for this device, between -40 and 40 (values outside that range are ignored) |
 
 ## Not Working?
 
@@ -129,7 +129,7 @@ This plugin uses Resideo's OAuth2 flow, so it stores OAuth tokens (not your acco
 - **Secure the Homebridge host.** Anyone who can read files on it can read your tokens.
 - **Scrub before sharing.** Redact `credentials` from `config.json` before posting logs or backups.
 
-The plugin talks to Resideo over TLS only, redacts tokens and the `apikey` from its logs, and never collects analytics. See [`SECURITY.md`](SECURITY.md).
+The plugin talks to Resideo over TLS only, redacts every credential — API Key and Secret, access and refresh tokens, the `apikey` query parameter, and `Authorization` headers — from its logs, and never collects analytics. See [`SECURITY.md`](SECURITY.md).
 
 ## Requirements
 

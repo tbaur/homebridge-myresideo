@@ -5,6 +5,11 @@
  * See LICENSE file for full license text
  */
 
+import {
+  MAX_DIAGNOSTICS_INTERVAL_SEC,
+  MAX_REFRESH_RATE_SEC,
+  MIN_REFRESH_RATE_SEC,
+} from '../../src/settings'
 import { sanitizeFreezeThreshold, validateConfig } from '../../src/utils'
 import type { ResideoPlatformConfig } from '../../src/types'
 
@@ -50,6 +55,40 @@ describe('validateConfig', () => {
     const result = validateConfig(baseConfig({ options: { refreshRate: 5 } }))
     expect(result.errors).toHaveLength(0)
     expect(result.warnings.some(w => w.includes('refreshRate'))).toBe(true)
+  })
+
+  it('warns when refreshRate is above the maximum', () => {
+    const result = validateConfig(baseConfig({
+      options: { refreshRate: MAX_REFRESH_RATE_SEC + 1 },
+    }))
+    expect(result.errors).toHaveLength(0)
+    expect(result.warnings.some(w => w.includes('above the'))).toBe(true)
+  })
+
+  it('warns when refreshRate is Infinity', () => {
+    // An over-range setInterval delay collapses to 1ms in Node, so this has to be
+    // caught rather than treated as "just a large number".
+    const result = validateConfig(baseConfig({ options: { refreshRate: Infinity } }))
+    expect(result.warnings.some(w => w.includes('refreshRate'))).toBe(true)
+  })
+
+  it('warns when diagnosticsInterval is above the maximum', () => {
+    const result = validateConfig(baseConfig({
+      options: { diagnosticsInterval: MAX_DIAGNOSTICS_INTERVAL_SEC + 1 },
+    }))
+    expect(result.warnings.some(w => w.includes('above the'))).toBe(true)
+  })
+
+  it('warns when diagnosticsInterval is Infinity', () => {
+    const result = validateConfig(baseConfig({ options: { diagnosticsInterval: Infinity } }))
+    expect(result.warnings.some(w => w.includes('diagnosticsInterval'))).toBe(true)
+  })
+
+  it('accepts refreshRate exactly at the bounds without warning', () => {
+    for (const refreshRate of [MIN_REFRESH_RATE_SEC, MAX_REFRESH_RATE_SEC]) {
+      const result = validateConfig(baseConfig({ options: { refreshRate } }))
+      expect(result.warnings).toHaveLength(0)
+    }
   })
 
   it('warns when refreshRate is not a number', () => {

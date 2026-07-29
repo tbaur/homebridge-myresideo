@@ -13,13 +13,16 @@ import { MAX_RETRY_AFTER_MS } from '../settings'
 /**
  * Resolve after `ms` milliseconds.
  *
- * NOTE: the returned timer is intentionally not cancelable. It is only used to
- * space out retries, the maximum wait is small and bounded (see {@link backoffMs}),
- * and in-flight requests already have their own timeouts, so a pending delay
- * during shutdown clears itself well within Homebridge's shutdown window.
+ * NOTE: the timer is intentionally not cancelable — it only spaces out retries, and
+ * in-flight requests already have their own timeouts. It is `unref`ed instead,
+ * because the wait is not always short: a server-supplied `Retry-After` can park a
+ * retry for up to {@link MAX_RETRY_AFTER_MS}, far longer than Homebridge's shutdown
+ * window, and a referenced timer would hold the process open for the remainder.
  */
 export function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms).unref()
+  })
 }
 
 /**

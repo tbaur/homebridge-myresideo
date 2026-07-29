@@ -50,6 +50,15 @@ export const DEFAULT_REFRESH_RATE_SEC = 120
 /** Minimum allowed polling interval (seconds) to avoid hammering the API. */
 export const MIN_REFRESH_RATE_SEC = 30
 
+/**
+ * Maximum allowed polling interval (seconds). An upper bound matters as much as the
+ * lower one: Node clamps any `setInterval` delay above 2^31-1 ms (~24.9 days) down
+ * to 1 ms, so an out-of-range value would silently become a tight poll loop that
+ * hammers the API. A day is already far longer than the detectors' own check-in
+ * period, so nothing useful lives above it.
+ */
+export const MAX_REFRESH_RATE_SEC = 86_400
+
 /** Default request timeout (ms) for API calls (including token refresh). */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 
@@ -124,6 +133,12 @@ export const LOW_BATTERY_THRESHOLD = 15
  * would spam the log without adding signal; a sub-minimum value is clamped up.
  */
 export const MIN_DIAGNOSTICS_INTERVAL_SEC = 30
+
+/**
+ * Maximum allowed diagnostics interval (seconds). Bounded for the same reason as
+ * {@link MAX_REFRESH_RATE_SEC}: an over-range `setInterval` delay collapses to 1 ms.
+ */
+export const MAX_DIAGNOSTICS_INTERVAL_SEC = 86_400
 
 /**
  * How long after a failed token refresh the plugin keeps reporting degraded

@@ -44,11 +44,11 @@ scripts/
 ## Design principles
 
 - **Dependency-light by design.** The Homebridge plugin runtime uses Node's native `https` and pulls in no third-party code. The package declares a single runtime dependency, `@homebridge/plugin-ui-utils` (itself dependency-free), used only by the optional custom settings UI that the Homebridge UI runs out-of-process — it is never loaded by the plugin at runtime. `homebridge` is a dev-only dependency (types) injected at runtime by the host, and `npm audit --omit=dev` reports zero advisories.
-- **Dev-dependency hygiene.** A single `overrides` entry pins `js-yaml` to `^4.2.0` across the dev tree, eliminating a transitive moderate advisory (GHSA-h67p-54hq-rp68) that reached `js-yaml@3.x` via jest's coverage chain (`babel-plugin-istanbul` → `@istanbuljs/load-nyc-config`). It is dev-only and never shipped.
+- **Dev-dependency hygiene.** Two `overrides` entries pin transitive dev dependencies away from known advisories: `js-yaml` to `^4.2.0`, eliminating a moderate advisory (GHSA-h67p-54hq-rp68) that reached `js-yaml@3.x` via jest's coverage chain (`babel-plugin-istanbul` → `@istanbuljs/load-nyc-config`), and `brace-expansion` to `5.0.8`. Both are dev-only and never shipped.
 - **Pure logic is isolated** in `utils/` and `errors/` so it is trivially unit-testable; network/HAP code accepts injectable transports for testing.
 - **Strict TypeScript** (`noImplicitAny`, `noUnusedLocals`, etc.).
 - **Fail fast on bad config.** `validateConfig` runs in the platform constructor; fatal errors stop the plugin with an actionable message, non-fatal issues log a warning and fall back to defaults.
-- **Secrets never reach the log.** All error logging goes through `sanitizeError`, which redacts `apikey`, bearer tokens, and access/refresh tokens.
+- **Secrets never reach the log.** All error logging goes through `sanitizeError`, which redacts the API Key and Secret (`consumerKey` / `consumerSecret` / `client_id` / `client_secret`), access and refresh tokens, the `apikey` query parameter, and `Authorization` headers in both `Bearer` and `Basic` form.
 
 ## Reliability & performance
 
@@ -63,7 +63,7 @@ This plugin talks to a **poll-based** REST API, so its resilience focuses on mak
 - **Bounded-concurrency polling** — devices are polled up to `POLL_DEVICE_CONCURRENCY` (4) at a time, with an in-flight guard that skips a tick if the previous cycle is still running.
 - **Stale-data handling** — missing temperature/humidity/battery readings raise a `StatusFault` instead of silently retaining a stale value; a missing battery reading is never asserted as a misleading 100% default.
 - **Polling cadence** — default 120s, configurable, clamped to a 30s minimum to avoid hammering the API.
-- **Opt-in diagnostics** — when `diagnosticsInterval > 0`, a `DiagnosticsCollector` accumulates in-memory counters (fed by client `metrics`/`onRetry` hooks, token-refresh callbacks, and poll-cycle results) and emits a periodic heartbeat plus boot/shutdown snapshots. Reads are synchronous and never touch the network; all emission is wrapped so a diagnostics failure can never crash the host. The config echo in snapshots is redacted (no credentials).
+- **Opt-in diagnostics** — when `diagnosticsInterval > 0`, a `DiagnosticsCollector` accumulates in-memory counters (fed by client `metrics`/`onRetry` hooks, token-refresh callbacks, and poll-cycle results) and emits a periodic heartbeat plus boot/shutdown snapshots. The human line stays quiet (`devices`, poll outcome, API p50/p95), surfacing leak count and breaker state only when they carry signal; full counters remain in the optional structured JSON. Reads are synchronous and never touch the network; all emission is wrapped so a diagnostics failure can never crash the host. The config echo in snapshots is redacted (no credentials).
 
 ## Testing
 
@@ -71,6 +71,8 @@ This plugin talks to a **poll-based** REST API, so its resilience focuses on mak
 - Integration tests live in `tests/integration/` and use `nock` to exercise the native `https` transport and token requester.
 - Tests compile under the same strict TypeScript settings as production (`tsconfig.test.json`).
 - Coverage threshold is 80% across statements, branches, functions, and lines for the whole `src/` tree (only barrel files and `settings.ts` are excluded).
+
+Requires **Node.js 20 or newer**, matching the `engines` range in `package.json`. CI runs this suite on Node 20, 22, and 24.
 
 ```bash
 npm install

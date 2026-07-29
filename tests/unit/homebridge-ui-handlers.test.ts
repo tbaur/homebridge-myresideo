@@ -11,7 +11,12 @@ import { AUTHORIZE_URL } from '../../src/settings'
 
 // Handlers load compiled dist helpers (same path the UI server uses at runtime).
 const { PendingOAuthState, buildAuthorizeUrlResponse, exchangeCode } = require('../../homebridge-ui/handlers') as {
-  PendingOAuthState: { new (): { set: (state: string) => void, take: () => string | null } }
+  PendingOAuthState: {
+    new (options?: { ttlMs?: number, now?: () => number }): {
+      set: (state: string) => void
+      take: () => string | null
+    }
+  }
   buildAuthorizeUrlResponse: (payload: { consumerKey?: string, redirectUri?: string }) => {
     authorizeUrl: string
     state: string
@@ -35,6 +40,32 @@ describe('homebridge-ui handlers', () => {
       pending.set('opaque-state')
       expect(pending.take()).toBe('opaque-state')
       expect(pending.take()).toBeNull()
+    })
+
+    it('expires a state the user never came back to', () => {
+      // An abandoned attempt must not stay valid for the life of the UI server.
+      let clock = 1_000
+      const pending = new PendingOAuthState({ ttlMs: 60_000, now: () => clock })
+      pending.set('opaque-state')
+
+      clock += 60_001
+      expect(pending.take()).toBeNull()
+    })
+
+    it('still honors a state used within the TTL', () => {
+      let clock = 1_000
+      const pending = new PendingOAuthState({ ttlMs: 60_000, now: () => clock })
+      pending.set('opaque-state')
+
+      clock += 59_999
+      expect(pending.take()).toBe('opaque-state')
+    })
+
+    it('supersedes an earlier attempt when sign-in is restarted', () => {
+      const pending = new PendingOAuthState()
+      pending.set('first-attempt')
+      pending.set('second-attempt')
+      expect(pending.take()).toBe('second-attempt')
     })
 
     it('ignores empty values', () => {
