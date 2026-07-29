@@ -33,6 +33,13 @@ export declare function clampBatteryLevel(batteryRemaining: number | undefined):
 /** Identify whether an API device record is a water leak detector. */
 export declare function isWaterLeakDetector(device: Pick<WaterLeakDetector, 'deviceClass'>): boolean;
 /**
+ * True when a device record carries the `deviceID` the platform depends on. The ID
+ * seeds the accessory UUID, keys the handler map, and distinguishes a real detector
+ * from a corrupt cache entry, so a record without one cannot be registered or
+ * cached — it would later be pruned and unregister the accessory from HomeKit.
+ */
+export declare function hasUsableDeviceId(device: Pick<WaterLeakDetector, 'deviceID'>): boolean;
+/**
  * True when the device reports at least one active alarm (e.g. HighTemperature,
  * HighHumidity, DeviceOffline). The array is empty on healthy devices. Guarded
  * with `Array.isArray` so a malformed/absent payload is treated as "no alarm"

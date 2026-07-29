@@ -80,7 +80,11 @@ class ResideoApiClient {
     /** GET a single water leak detector's current status. */
     async getWaterLeakDetector(deviceID, locationId) {
         const url = `${settings_1.DEVICES_URL}/${settings_1.WATER_LEAK_DETECTOR_TYPE}/${encodeURIComponent(deviceID)}`;
-        return this.get(url, { locationId: String(locationId) });
+        // Validate inside get()'s success path (before recordSuccess) so a 200 with an
+        // unusable body is retried and counted as a breaker failure, exactly like
+        // getLocations. Without this an HTML/WAF or gateway-error body that happens to
+        // parse as JSON would be handed to the accessory as device state.
+        return this.get(url, { locationId: String(locationId) }, parsed => assertWaterLeakDetector(parsed));
     }
     /** Current resilience status (circuit breaker). */
     getStatus() {
@@ -246,6 +250,26 @@ class ResideoApiClient {
     }
 }
 exports.ResideoApiClient = ResideoApiClient;
+/**
+ * Narrow a parsed detector payload to a usable {@link WaterLeakDetector}.
+ *
+ * `deviceID` is load-bearing far beyond this response: the platform uses it as the
+ * accessory UUID seed, the handler-map key, and the test for whether a cached
+ * accessory is a real detector or a corrupt entry to prune. A 200 body without one
+ * (`null`, `{}`, a gateway error object) would therefore be cached as device state
+ * and later cause the accessory to be unregistered from HomeKit, so it is rejected
+ * here as a retryable parse failure instead.
+ */
+function assertWaterLeakDetector(parsed) {
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new errors_1.ApiParseError('Detector response was not an object; the API returned an unexpected payload.');
+    }
+    const device = parsed;
+    if (typeof device.deviceID !== 'string' || device.deviceID === '') {
+        throw new errors_1.ApiParseError('Detector response did not include a deviceID; the API returned an unexpected payload.');
+    }
+    return device;
+}
 /** Path-only URL description for error messages (never includes query/secrets). */
 function describeUrl(url) {
     try {

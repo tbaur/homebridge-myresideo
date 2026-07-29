@@ -21,25 +21,44 @@ const { sanitizeError } = require('../dist/utils')
 
 const asTrimmedString = value => (typeof value === 'string' ? value.trim() : '')
 
+/** How long an issued OAuth `state` stays usable before a linking attempt expires. */
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000
+
 /**
  * One-shot in-memory holder for the OAuth CSRF `state` issued by
  * `/build-authorize-url`. Kept on the UI server process so the browser never
  * stores the value (e.g. in sessionStorage).
+ *
+ * Linking is deliberately single-flight: starting a new sign-in supersedes any
+ * earlier attempt. An attempt the user abandons expires after
+ * {@link OAUTH_STATE_TTL_MS} rather than staying valid for the lifetime of the UI
+ * server process, so a long-stale redirect cannot be replayed against it.
  */
 class PendingOAuthState {
-  constructor() {
+  /** @param {{ ttlMs?: number, now?: () => number }} [options] Injectable for tests. */
+  constructor(options = {}) {
+    this.ttlMs = typeof options.ttlMs === 'number' ? options.ttlMs : OAUTH_STATE_TTL_MS
+    this.now = options.now || (() => Date.now())
     this.value = null
+    this.issuedAt = 0
   }
 
   /** Remember the state for the current linking attempt. */
   set(state) {
-    this.value = typeof state === 'string' && state ? state : null
+    const usable = typeof state === 'string' && state ? state : null
+    this.value = usable
+    this.issuedAt = usable ? this.now() : 0
   }
 
-  /** Return and clear the pending state (one-time use). */
+  /** Return and clear the pending state (one-time use), or null once expired. */
   take() {
     const current = this.value
+    const issuedAt = this.issuedAt
     this.value = null
+    this.issuedAt = 0
+    if (current === null || this.now() - issuedAt > this.ttlMs) {
+      return null
+    }
     return current
   }
 }

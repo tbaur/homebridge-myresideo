@@ -14,6 +14,12 @@ const mockReadFile = jest.fn()
 const mockWriteFile = jest.fn()
 const mockRename = jest.fn()
 const mockRm = jest.fn()
+const mockOpen = jest.fn()
+// Handle returned by fs.open. The durable write path writes through the handle and
+// fsyncs before closing, so tokens cannot be published by rename while still cached.
+const mockHandleWriteFile = jest.fn()
+const mockHandleSync = jest.fn()
+const mockHandleClose = jest.fn()
 
 jest.mock('../../src/api', () => ({
   ResideoApiClient: jest.fn(),
@@ -30,6 +36,7 @@ jest.mock('node:fs', () => ({
     writeFile: mockWriteFile,
     rename: mockRename,
     rm: mockRm,
+    open: mockOpen,
   },
 }))
 
@@ -44,7 +51,13 @@ import {
   RefreshTokenInvalidError,
 } from '../../src/errors'
 import ResideoPlatform from '../../src/platform'
-import { DEFAULT_REFRESH_RATE_SEC, MIN_REFRESH_RATE_SEC } from '../../src/settings'
+import {
+  DEFAULT_REFRESH_RATE_SEC,
+  MAX_DIAGNOSTICS_INTERVAL_SEC,
+  MAX_REFRESH_RATE_SEC,
+  MIN_DIAGNOSTICS_INTERVAL_SEC,
+  MIN_REFRESH_RATE_SEC,
+} from '../../src/settings'
 import type { ResideoPlatformConfig, WaterLeakDetector } from '../../src/types'
 import type { API, Logging, PlatformAccessory } from 'homebridge'
 
@@ -124,6 +137,14 @@ beforeEach(() => {
   mockWriteFile.mockReset().mockResolvedValue(undefined)
   mockRename.mockReset().mockResolvedValue(undefined)
   mockRm.mockReset().mockResolvedValue(undefined)
+  mockHandleWriteFile.mockReset().mockResolvedValue(undefined)
+  mockHandleSync.mockReset().mockResolvedValue(undefined)
+  mockHandleClose.mockReset().mockResolvedValue(undefined)
+  mockOpen.mockReset().mockResolvedValue({
+    writeFile: mockHandleWriteFile,
+    sync: mockHandleSync,
+    close: mockHandleClose,
+  })
 })
 
 describe('ResideoPlatform construction', () => {
@@ -146,6 +167,63 @@ describe('ResideoPlatform construction', () => {
     expect(ResideoApiClient).toHaveBeenCalledTimes(1)
     expect(api.on).toHaveBeenCalledWith('didFinishLaunching', expect.any(Function))
     expect(api.on).toHaveBeenCalledWith('shutdown', expect.any(Function))
+  })
+})
+
+describe('poll cadence clamping', () => {
+  // Both ends of the range collapse to a runaway timer: setInterval coerces NaN to
+  // 0, and Node clamps any delay above 2^31-1 ms down to 1 ms. A config typo must
+  // not turn into hundreds of API requests per second.
+  const cadenceCases: Array<[string, unknown, number]> = [
+    ['a sane value is used as-is', 300, 300_000],
+    ['below the minimum is clamped up', 5, MIN_REFRESH_RATE_SEC * 1000],
+    ['zero is clamped up', 0, MIN_REFRESH_RATE_SEC * 1000],
+    ['negative is clamped up', -60, MIN_REFRESH_RATE_SEC * 1000],
+    ['above the maximum is clamped down', MAX_REFRESH_RATE_SEC * 10, MAX_REFRESH_RATE_SEC * 1000],
+    // Non-finite values carry no usable intent, so they take the default rather
+    // than being clamped to a once-a-day cadence the user never asked for.
+    ['Infinity falls back to the default', Infinity, DEFAULT_REFRESH_RATE_SEC * 1000],
+    ['-Infinity falls back to the default', -Infinity, DEFAULT_REFRESH_RATE_SEC * 1000],
+    ['NaN falls back to the default', NaN, DEFAULT_REFRESH_RATE_SEC * 1000],
+    ['a string falls back to the default', 'fast', DEFAULT_REFRESH_RATE_SEC * 1000],
+  ]
+
+  it.each(cadenceCases)('refreshRate: %s', (_label, refreshRate, expectedMs) => {
+    const { api } = makeApi()
+    const platform = new ResideoPlatform(
+      makeLog(),
+      { ...validConfig(), options: { refreshRate: refreshRate as number } },
+      api as unknown as API,
+    )
+
+    const actual = (platform as unknown as { refreshRateMs: number }).refreshRateMs
+    expect(actual).toBe(expectedMs)
+    // Whatever the input, the result must be a delay setInterval can represent.
+    expect(Number.isFinite(actual)).toBe(true)
+    expect(actual).toBeLessThanOrEqual(2 ** 31 - 1)
+  })
+
+  const diagnosticsCases: Array<[string, unknown, number]> = [
+    ['zero disables diagnostics', 0, 0],
+    ['negative disables diagnostics', -5, 0],
+    // Diagnostics are opt-in, so an unusable value leaves them off.
+    ['Infinity disables diagnostics', Infinity, 0],
+    ['NaN disables diagnostics', NaN, 0],
+    ['above the maximum is clamped down', MAX_DIAGNOSTICS_INTERVAL_SEC + 1, MAX_DIAGNOSTICS_INTERVAL_SEC * 1000],
+    ['below the minimum is clamped up', 5, MIN_DIAGNOSTICS_INTERVAL_SEC * 1000],
+    ['a sane value is used as-is', 300, 300_000],
+  ]
+
+  it.each(diagnosticsCases)('diagnosticsInterval: %s', (_label, diagnosticsInterval, expectedMs) => {
+    const { api } = makeApi()
+    const platform = new ResideoPlatform(
+      makeLog(),
+      { ...validConfig(), options: { diagnosticsInterval: diagnosticsInterval as number } },
+      api as unknown as API,
+    )
+
+    const internal = platform as unknown as { diagnosticsIntervalMs: () => number }
+    expect(internal.diagnosticsIntervalMs()).toBe(expectedMs)
   })
 })
 
@@ -335,6 +413,70 @@ describe('discovery and polling', () => {
     expect(log.warn).toHaveBeenCalledWith(
       expect.stringContaining('without a deviceID'),
     )
+
+    handlers.shutdown()
+  })
+
+  it('stops polling a corrupt accessory it unregistered', async () => {
+    // A pruned accessory whose cached record lost its deviceID must still release
+    // its handler/location entries. Otherwise the plugin keeps polling a detector
+    // that no longer exists in HomeKit and the device gauges stay wrong forever.
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leakDevice] }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    const platform = new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    const internal = platform as unknown as {
+      handlers: Map<string, unknown>
+      locationByDevice: Map<string, number>
+      pruneCorruptAccessories: () => void
+    }
+    expect(internal.handlers.has('dev-1')).toBe(true)
+
+    // Simulate the cached record losing its deviceID, then prune.
+    platform.accessories[0].context.device = {}
+    internal.pruneCorruptAccessories()
+
+    expect(api.unregisterPlatformAccessories).toHaveBeenCalled()
+    expect(internal.handlers.has('dev-1')).toBe(false)
+    expect(internal.locationByDevice.has('dev-1')).toBe(false)
+
+    // Nothing left to poll, so no further device requests are issued.
+    mockGetDetector.mockClear()
+    await (platform as unknown as { runPollCycle: () => Promise<void> }).runPollCycle()
+    expect(mockGetDetector).not.toHaveBeenCalled()
+
+    handlers.shutdown()
+  })
+
+  it('skips a discovered detector that has no deviceID', async () => {
+    // Registering it would mint an accessory that pruneCorruptAccessories then
+    // deletes, so it is skipped up front with an explanation instead.
+    mockGetLocations.mockResolvedValue([{
+      locationID: 42,
+      devices: [
+        { deviceClass: 'LeakDetector', deviceType: 'Water Leak Detector', waterPresent: false },
+        leakDevice,
+      ],
+    }])
+    mockGetDetector.mockResolvedValue(leakDevice)
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await flush()
+
+    expect(api.registerPlatformAccessories).toHaveBeenCalledTimes(1)
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Discovered 1 water leak detector'))
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('without a deviceID'))
+    expect(api.unregisterPlatformAccessories).not.toHaveBeenCalled()
 
     handlers.shutdown()
   })
@@ -769,8 +911,20 @@ describe('boot state summary', () => {
 })
 
 describe('refresh token persistence', () => {
+  /**
+   * Mirror durable writes into subsequent reads so the post-promote verify step
+   * sees the tokens that were just written (as a real filesystem would).
+   */
+  function mirrorConfigOnDisk(initialJson: string): void {
+    let onDisk = initialJson
+    mockReadFile.mockImplementation(async () => onDisk)
+    mockHandleWriteFile.mockImplementation(async (content: string) => {
+      onDisk = content
+    })
+  }
+
   it('writes the rotated token atomically (temp file + rename)', async () => {
-    mockReadFile.mockResolvedValue(JSON.stringify({
+    mirrorConfigOnDisk(JSON.stringify({
       platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
     }))
     mockRename.mockResolvedValue(undefined)
@@ -784,17 +938,77 @@ describe('refresh token persistence', () => {
     }
     await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
-    expect(mockWriteFile).toHaveBeenCalledTimes(1)
-    const [tempPath, content] = mockWriteFile.mock.calls[0] as [string, string]
+    expect(mockOpen).toHaveBeenCalledTimes(1)
+    const [tempPath] = mockOpen.mock.calls[0] as [string, string]
     expect(tempPath).toMatch(/\.tmp$/)
+    const [content] = mockHandleWriteFile.mock.calls[0] as [string, string]
     expect(content).toContain('rotated-token')
     expect(content).toContain('access-new')
+    // fsync before the rename publishes it, so a crash cannot expose a truncated
+    // config; the handle is always closed.
+    expect(mockHandleSync).toHaveBeenCalledTimes(1)
+    expect(mockHandleClose).toHaveBeenCalledTimes(1)
     expect(mockRename).toHaveBeenCalledWith(tempPath, '/tmp/config.json')
     expect(mockRm).not.toHaveBeenCalled()
   })
 
+  it('retries when a concurrent save overwrites the new tokens before they are confirmed', async () => {
+    const initial = JSON.stringify({
+      platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
+    })
+    let onDisk = initial
+    let writes = 0
+    mockReadFile.mockImplementation(async () => onDisk)
+    mockHandleWriteFile.mockImplementation(async (content: string) => {
+      writes++
+      // First promote is "clobbered" by Config UI X (verify still sees old tokens).
+      // Second write sticks.
+      if (writes >= 2) {
+        onDisk = content
+      }
+    })
+    mockRename.mockResolvedValue(undefined)
+
+    const log = makeLog()
+    const { api } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
+    }
+    await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
+
+    expect(writes).toBe(2)
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('overwritten before it could be confirmed'))
+    expect(onDisk).toContain('rotated-token')
+  })
+
+  it('closes the handle and reports the failure when the fsync fails', async () => {
+    mirrorConfigOnDisk(JSON.stringify({
+      platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
+    }))
+    mockHandleSync.mockRejectedValue(new Error('sync failed'))
+
+    const log = makeLog()
+    const { api } = makeApi()
+    new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+    const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
+      onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
+    }
+    // Never throws: the refresh itself already succeeded.
+    await expect(
+      tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' }),
+    ).resolves.toBeUndefined()
+
+    expect(mockHandleClose).toHaveBeenCalledTimes(1)
+    // The un-synced temp file is never promoted over the live config.
+    expect(mockRename).not.toHaveBeenCalled()
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Could not persist tokens'))
+  })
+
   it('replaces config via rename-aside when rename cannot overwrite (Windows)', async () => {
-    mockReadFile.mockResolvedValue(JSON.stringify({
+    mirrorConfigOnDisk(JSON.stringify({
       platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
     }))
     const eexist = Object.assign(new Error('EEXIST'), { code: 'EEXIST' })
@@ -812,7 +1026,7 @@ describe('refresh token persistence', () => {
     }
     await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
-    const [tempPath] = mockWriteFile.mock.calls[0] as [string, string]
+    const [tempPath] = mockOpen.mock.calls[0] as [string, string]
     // 1) temp → config (fails EEXIST), 2) config → backup, 3) temp → config
     expect(mockRename).toHaveBeenNthCalledWith(1, tempPath, '/tmp/config.json')
     expect(mockRename.mock.calls[1][0]).toBe('/tmp/config.json')
@@ -822,7 +1036,7 @@ describe('refresh token persistence', () => {
   })
 
   it('restores the backup if Windows promote fails after rename-aside', async () => {
-    mockReadFile.mockResolvedValue(JSON.stringify({
+    mirrorConfigOnDisk(JSON.stringify({
       platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
     }))
     const eexist = Object.assign(new Error('EEXIST'), { code: 'EEXIST' })
@@ -866,7 +1080,7 @@ describe('refresh token persistence', () => {
   })
 
   it('refuses to persist when multiple platform blocks share the same name', async () => {
-    mockReadFile.mockResolvedValue(JSON.stringify({
+    mirrorConfigOnDisk(JSON.stringify({
       platforms: [
         { platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old-a' } },
         { platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old-b' } },
@@ -882,12 +1096,12 @@ describe('refresh token persistence', () => {
     }
     await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
-    expect(mockWriteFile).not.toHaveBeenCalled()
+    expect(mockOpen).not.toHaveBeenCalled()
     expect(log.error).toHaveBeenCalledWith(expect.stringContaining('unique "name"'))
   })
 
   it('refuses to persist when no platform block matches this instance name', async () => {
-    mockReadFile.mockResolvedValue(JSON.stringify({
+    mirrorConfigOnDisk(JSON.stringify({
       platforms: [
         { platform: 'MyResideo', name: 'Kitchen', credentials: { refreshToken: 'old-a' } },
         { platform: 'MyResideo', name: 'Garage', credentials: { refreshToken: 'old-b' } },
@@ -903,13 +1117,13 @@ describe('refresh token persistence', () => {
     }
     await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
-    expect(mockWriteFile).not.toHaveBeenCalled()
+    expect(mockOpen).not.toHaveBeenCalled()
     expect(log.error).toHaveBeenCalledWith(expect.stringContaining('no MyResideo platform block matches'))
     expect(log.error).not.toHaveBeenCalledWith(expect.stringContaining('share the same name'))
   })
 
   it('selects the block matching this instance name when several blocks exist', async () => {
-    mockReadFile.mockResolvedValue(JSON.stringify({
+    mirrorConfigOnDisk(JSON.stringify({
       platforms: [
         { platform: 'MyResideo', name: 'Other', credentials: { refreshToken: 'old-other' } },
         { platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old-mine' } },
@@ -925,7 +1139,7 @@ describe('refresh token persistence', () => {
     }
     await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
-    const [, content] = mockWriteFile.mock.calls[0] as [string, string]
+    const [content] = mockHandleWriteFile.mock.calls[0] as [string, string]
     const written = JSON.parse(content) as { platforms: ResideoPlatformConfig[] }
     expect(written.platforms[0].credentials.refreshToken).toBe('old-other')
     expect(written.platforms[1].credentials.refreshToken).toBe('rotated-token')
@@ -1014,18 +1228,52 @@ describe('diagnostics', () => {
       .map(args => args[0] as string)
       .find(line => typeof line === 'string' && line.includes('Health: healthy'))
     expect(healthLine).toBeDefined()
-    // Request activity is reported once: this plugin is polling-only, so the API
-    // `req`/`err` counts would just restate the poll counts. The line surfaces
-    // retries and keeps only the latency percentiles from the API metrics.
+    // Healthy-path line stays quiet: devices + poll + api latency. Leak and
+    // breaker only appear when they carry signal; token expiry stays in JSON.
+    expect(healthLine).toContain('devices ')
     expect(healthLine).toContain('poll')
     expect(healthLine).toContain('retried')
-    expect(healthLine).toContain('latency p50')
-    expect(healthLine).toContain('breaker CLOSED')
+    expect(healthLine).toContain('api p50')
+    expect(healthLine).not.toContain('latency p50')
+    expect(healthLine).not.toContain('breaker ')
+    expect(healthLine).not.toContain(' leak')
+    expect(healthLine).not.toContain('token exp')
     expect(healthLine).not.toContain('req ')
-    expect(healthLine).not.toContain('api p50')
 
     handlers.shutdown()
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Diagnostics stop'))
+  })
+
+  it('surfaces an active leak and a non-CLOSED breaker on the health line', async () => {
+    jest.useFakeTimers()
+    stubTokenManagerWithStatus()
+    const leaking = { ...leakDevice, waterPresent: true }
+    mockGetLocations.mockResolvedValue([{ locationID: 1, devices: [leaking] }])
+    mockGetDetector.mockResolvedValue(leaking);
+    (ResideoApiClient as unknown as jest.Mock).mockImplementation(() => ({
+      getLocations: mockGetLocations,
+      getWaterLeakDetector: mockGetDetector,
+      getStatus: () => ({ circuitBreaker: { state: 'OPEN' } }),
+    }))
+
+    const log = makeLog()
+    const { api, handlers } = makeApi()
+    new ResideoPlatform(log, diagnosticsConfig(), api as unknown as API)
+
+    handlers.didFinishLaunching()
+    await jest.advanceTimersByTimeAsync(0)
+    // Boot poll writes the leak into accessory context so the gauges see it.
+    await jest.advanceTimersByTimeAsync(0)
+
+    const startLine = (log.info as jest.Mock).mock.calls
+      .map(args => args[0] as string)
+      .find(line => typeof line === 'string' && line.includes('Diagnostics start'))
+    expect(startLine).toContain('(1 leak)')
+    expect(startLine).toContain('breaker OPEN')
+    expect(startLine).toContain('api p50')
+    expect(startLine).not.toContain('token exp')
+
+    handlers.shutdown()
   })
 
   it('does not emit diagnostics when diagnosticsInterval is unset (default off)', async () => {

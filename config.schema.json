@@ -46,20 +46,24 @@
             "type": "integer",
             "default": 120,
             "minimum": 30,
-            "description": "How often to poll Resideo for device status. Minimum 30 seconds."
+            "maximum": 86400,
+            "description": "How often to poll Resideo for device status. Minimum 30 seconds, maximum 86400 (1 day). Out-of-range values are clamped."
           },
           "freezeThresholdCelsius": {
             "title": "Default Freeze Threshold (°C)",
             "type": "number",
             "placeholder": 4,
-            "description": "Optional. Temperature at or below which the optional freeze sensor trips. Leave blank to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence."
+            "minimum": -40,
+            "maximum": 40,
+            "description": "Optional. Temperature at or below which the optional freeze sensor trips. Must be between -40 and 40 °C; values outside that range are ignored. Leave blank to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence."
           },
           "diagnosticsInterval": {
             "title": "Diagnostics Interval (seconds)",
             "type": "integer",
             "default": 0,
             "minimum": 0,
-            "description": "Emit a periodic plugin health report to the log every N seconds. Set to 0 to disable. A typical value is 300 (5 minutes); values between 1 and 30 are clamped up to 30."
+            "maximum": 86400,
+            "description": "Emit a periodic plugin health report to the log every N seconds. Set to 0 to disable. A typical value is 300 (5 minutes); values between 1 and 30 are clamped up to 30, and the maximum is 86400 (1 day)."
           },
           "structuredLogs": {
             "title": "Structured (JSON) Logs",
@@ -97,7 +101,10 @@
                 },
                 "freezeThresholdCelsius": {
                   "title": "Freeze Threshold Override (°C)",
-                  "type": "number"
+                  "type": "number",
+                  "minimum": -40,
+                  "maximum": 40,
+                  "description": "Must be between -40 and 40 °C; values outside that range are ignored and the default applies."
                 }
               }
             }

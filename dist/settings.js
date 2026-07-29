@@ -8,7 +8,7 @@
  * @fileoverview Plugin-wide constants and Resideo / Honeywell Home API endpoints.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_FREEZE_THRESHOLD_C = exports.TOKEN_REFRESH_FAILURE_COOLDOWN_MS = exports.MIN_DIAGNOSTICS_INTERVAL_SEC = exports.LOW_BATTERY_THRESHOLD = exports.MIN_TOKEN_LIFETIME_MS = exports.DEFAULT_TOKEN_TTL_SEC = exports.TOKEN_REFRESH_BUFFER_MS = exports.EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS = exports.STALE_REMOVAL_CONFIRMATIONS = exports.MAX_DISCOVERY_RETRY_MS = exports.INITIAL_DISCOVERY_RETRY_MS = exports.POLL_DEVICE_CONCURRENCY = exports.MAX_RESPONSE_BODY_BYTES = exports.MAX_RETRY_AFTER_MS = exports.MAX_API_RETRY_ATTEMPTS = exports.MAX_TOKEN_REFRESH_ATTEMPTS = exports.DEFAULT_REQUEST_TIMEOUT_MS = exports.MIN_REFRESH_RATE_SEC = exports.DEFAULT_REFRESH_RATE_SEC = exports.LEAK_DETECTOR_DEVICE_CLASS = exports.WATER_LEAK_DETECTOR_TYPE = exports.DEVICES_URL = exports.LOCATIONS_URL = exports.TOKEN_URL = exports.AUTHORIZE_URL = exports.API_BASE_URL = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
+exports.DEFAULT_FREEZE_THRESHOLD_C = exports.TOKEN_REFRESH_FAILURE_COOLDOWN_MS = exports.MAX_DIAGNOSTICS_INTERVAL_SEC = exports.MIN_DIAGNOSTICS_INTERVAL_SEC = exports.LOW_BATTERY_THRESHOLD = exports.MIN_TOKEN_LIFETIME_MS = exports.DEFAULT_TOKEN_TTL_SEC = exports.TOKEN_REFRESH_BUFFER_MS = exports.EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS = exports.STALE_REMOVAL_CONFIRMATIONS = exports.MAX_DISCOVERY_RETRY_MS = exports.INITIAL_DISCOVERY_RETRY_MS = exports.POLL_DEVICE_CONCURRENCY = exports.MAX_RESPONSE_BODY_BYTES = exports.MAX_RETRY_AFTER_MS = exports.MAX_API_RETRY_ATTEMPTS = exports.MAX_TOKEN_REFRESH_ATTEMPTS = exports.DEFAULT_REQUEST_TIMEOUT_MS = exports.MAX_REFRESH_RATE_SEC = exports.MIN_REFRESH_RATE_SEC = exports.DEFAULT_REFRESH_RATE_SEC = exports.LEAK_DETECTOR_DEVICE_CLASS = exports.WATER_LEAK_DETECTOR_TYPE = exports.DEVICES_URL = exports.LOCATIONS_URL = exports.TOKEN_URL = exports.AUTHORIZE_URL = exports.API_BASE_URL = exports.UUID_PREFIX = exports.PLATFORM_NAME = exports.PLUGIN_NAME = void 0;
 /** Name used to register the plugin with Homebridge (must match package.json name). */
 exports.PLUGIN_NAME = 'homebridge-myresideo';
 /** Platform identifier referenced in the user's Homebridge config. */
@@ -40,6 +40,14 @@ exports.LEAK_DETECTOR_DEVICE_CLASS = 'LeakDetector';
 exports.DEFAULT_REFRESH_RATE_SEC = 120;
 /** Minimum allowed polling interval (seconds) to avoid hammering the API. */
 exports.MIN_REFRESH_RATE_SEC = 30;
+/**
+ * Maximum allowed polling interval (seconds). An upper bound matters as much as the
+ * lower one: Node clamps any `setInterval` delay above 2^31-1 ms (~24.9 days) down
+ * to 1 ms, so an out-of-range value would silently become a tight poll loop that
+ * hammers the API. A day is already far longer than the detectors' own check-in
+ * period, so nothing useful lives above it.
+ */
+exports.MAX_REFRESH_RATE_SEC = 86_400;
 /** Default request timeout (ms) for API calls (including token refresh). */
 exports.DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 /** Maximum number of token-refresh attempts before surfacing the failure. */
@@ -100,6 +108,11 @@ exports.LOW_BATTERY_THRESHOLD = 15;
  * would spam the log without adding signal; a sub-minimum value is clamped up.
  */
 exports.MIN_DIAGNOSTICS_INTERVAL_SEC = 30;
+/**
+ * Maximum allowed diagnostics interval (seconds). Bounded for the same reason as
+ * {@link MAX_REFRESH_RATE_SEC}: an over-range `setInterval` delay collapses to 1 ms.
+ */
+exports.MAX_DIAGNOSTICS_INTERVAL_SEC = 86_400;
 /**
  * How long after a failed token refresh the plugin keeps reporting degraded
  * health, so a transient refresh blip is visible in diagnostics for a sensible

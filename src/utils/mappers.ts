@@ -73,6 +73,16 @@ export function isWaterLeakDetector(device: Pick<WaterLeakDetector, 'deviceClass
 }
 
 /**
+ * True when a device record carries the `deviceID` the platform depends on. The ID
+ * seeds the accessory UUID, keys the handler map, and distinguishes a real detector
+ * from a corrupt cache entry, so a record without one cannot be registered or
+ * cached — it would later be pruned and unregister the accessory from HomeKit.
+ */
+export function hasUsableDeviceId(device: Pick<WaterLeakDetector, 'deviceID'>): boolean {
+  return typeof device.deviceID === 'string' && device.deviceID !== ''
+}
+
+/**
  * True when the device reports at least one active alarm (e.g. HighTemperature,
  * HighHumidity, DeviceOffline). The array is empty on healthy devices. Guarded
  * with `Array.isArray` so a malformed/absent payload is treated as "no alarm"

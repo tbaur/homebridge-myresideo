@@ -5,7 +5,7 @@
 ## Core Features
 
 - ✅ Automatic device discovery from the Resideo / Honeywell Home cloud at startup (restart Homebridge to pick up newly-added detectors)
-- ✅ Stale-accessory pruning (detectors removed from the account are unregistered)
+- ✅ Stale-accessory pruning (a detector is unregistered only after several consecutive non-empty discoveries omit it, and only while the platform is stable — so a partial or empty cloud response during an outage cannot wipe HomeKit)
 - ✅ Water leak detection exposed as a HomeKit Leak Sensor
 - ✅ Temperature and humidity readings exposed as HomeKit sensors (optional, per device)
 - ✅ Fault signaling on missing readings instead of showing stale values (temperature, humidity, and battery raise `StatusFault` when a prior reading disappears)
@@ -13,7 +13,7 @@
 - ✅ State-change logging: each poll logs leak, connectivity, low-battery, freeze, and alarm transitions once when they change (not every cycle), with a full per-device snapshot available at debug level
 - ✅ Quiet poll misses: per-device transient poll failures log at debug with the detector name (`Polling skipped for …`); auth/re-link failures still surface once per poll cycle at error; operators see API outages via circuit-breaker OPEN (warn) / HALF_OPEN+CLOSED (info) instead of per-device error spam
 - ✅ Per-check-in reporting: when a detector reports in to the cloud (on its configured check-in period — the Resideo app's 1–3×/day update frequency), a one-line summary prefixed with the detector's name logs its current readings and the poll latency, so the log reflects each device update without per-poll noise. Note: `refreshRate` bounds how often the plugin asks Resideo for the latest cloud snapshot; HomeKit freshness for leak/sensor data is still bounded by how often the physical detector uploads (`lastCheckin`)
-- ✅ Opt-in health diagnostics (`diagnosticsInterval`): a periodic heartbeat reporting API latency (p50/p95), poll success/failure, circuit-breaker state/trips, token expiry, device online/leak/low-battery counts, and a `healthy`/`degraded` rollup (circuit breaker open, high API error rate, token-refresh failure, empty-discovery retry, or a fully-failed poll cycle), with boot/shutdown snapshots, healthy↔degraded transition logs, and optional structured-JSON output (`structuredLogs`)
+- ✅ Opt-in health diagnostics (`diagnosticsInterval`): a periodic heartbeat reporting device online count, poll success/failure, and API latency (p50/p95), with a `healthy`/`degraded` rollup (circuit breaker open, high API error rate, token-refresh failure, empty-discovery retry, or a fully-failed poll cycle). An active leak and a non-CLOSED breaker appear on the human line only when relevant; boot/shutdown snapshots, healthy↔degraded transition logs, and optional structured-JSON output (`structuredLogs`) carry the full counters
 - ✅ Freeze detection derived from temperature (optional Contact Sensor, per device)
 - ✅ Battery level and low-battery status (no misleading default when unreported)
 - ✅ Configurable polling (120s default, 30s minimum) with bounded concurrency and an in-flight guard
@@ -34,7 +34,7 @@
 
 | Type | Honeywell `deviceClass` | HomeKit services |
 |------|-------------------------|------------------|
-| **WiFi Water Leak & Freeze Detector** | `LeakDetector` | Leak Sensor, Temperature Sensor, Humidity Sensor, Battery, Contact Sensor (freeze) |
+| **WiFi Water Leak & Freeze Detector** | `LeakDetector` | Leak Sensor, Battery; Temperature Sensor and Humidity Sensor unless hidden; Contact Sensor (freeze) when `enableFreezeSensor` is set |
 
 ## Architecture
 
@@ -61,7 +61,7 @@ homebridge-myresideo/
 
 - Unit and integration test suites with an 80%+ coverage gate (statements, branches, functions, and lines) across `src/`, excluding re-export `index.ts` barrels and the static `settings.ts` constants
 - Platform and accessory layers unit-tested with a mocked HAP surface
-- ESLint with zero warnings
+- ESLint with zero warnings, enforced in CI via `--max-warnings 0`
 - TypeScript strict mode — production and tests compile under the same strict settings
 - JSDoc on public modules and exported helpers
 - Lean dependencies: the plugin core uses Node's native `https`; the only runtime dependency, `@homebridge/plugin-ui-utils`, is itself dependency-free and used solely by the optional account-linking UI

@@ -114,8 +114,16 @@ class LeakSensorAccessory {
      * is the wall-clock duration of the poll request that produced this payload,
      * used only to annotate the per-check-in report; it is absent for the initial
      * constructor observation.
+     *
+     * A payload without a `deviceID` is ignored rather than applied: the client and
+     * discovery both reject those, so reaching here means something upstream changed,
+     * and caching one would corrupt `context.device` and cost the user this accessory.
      */
     updateStatus(device, latencyMs) {
+        if (!(0, utils_1.hasUsableDeviceId)(device)) {
+            this.platform.log.debug(`${this.displayName}: ignoring a status payload with no deviceID; keeping the last known state`);
+            return;
+        }
         this.accessory.context.device = device;
         const { Characteristic } = this.platform;
         // An unreachable device's readings are stale, and an active alarm is a

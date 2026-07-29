@@ -109,6 +109,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      */
     private reconcileMissingDetectors;
     private unregisterAccessories;
+    /** Tracked device ID whose generated accessory UUID matches `uuid`, if any. */
+    private trackedDeviceIdForUuid;
     private optionsForDevice;
     private startPolling;
     /** Run one poll cycle, skipping if a previous cycle is still in flight. */
@@ -162,13 +164,25 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * survive a Homebridge restart. Rewrites the whole config file as pretty-printed
      * JSON (4-space indent) for the matching platform block — other platforms'
      * values are preserved, but key order/formatting for the file may change.
-     * Writes atomically (temp file + rename; on Windows, rename-aside then promote
-     * with restore-on-failure) so a crash cannot leave a half-written config and
-     * never deletes the live config before the new file is in place. A failure
-     * here is serious — tokens may only be in memory — so it is logged at error
-     * with that consequence spelled out, but never thrown (refresh already succeeded).
+     *
+     * Writes atomically and durably (fsync before rename; Windows rename-aside with
+     * restore-on-failure). Token refresh is single-flight, so this never races
+     * itself. Against an interleaved Homebridge Config UI X save of the same file,
+     * each attempt re-reads immediately before writing (so unrelated option edits
+     * are not clobbered from a stale snapshot) and re-reads after promoting to
+     * confirm the tokens landed; if Config UI X overwrote them, the write is
+     * retried a few times.
+     *
+     * A failure here is serious — tokens may only be in memory — so it is logged at
+     * error with that consequence spelled out, but never thrown (refresh succeeded).
      */
     private persistTokens;
+    /**
+     * True when `configPath` currently stores exactly the given tokens on this
+     * platform block. Used to detect a lost race against Config UI X saving over
+     * the just-promoted file.
+     */
+    private configHasTokens;
     /**
      * Replace `configPath` with the contents already written to `tempPath`.
      * Prefer a direct rename (atomic on POSIX). When the platform refuses to

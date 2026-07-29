@@ -96,16 +96,19 @@ function validateConfig(config) {
     if (options) {
         const { refreshRate, freezeThresholdCelsius, diagnosticsInterval, devices } = options;
         if (refreshRate !== undefined) {
-            if (typeof refreshRate !== 'number' || Number.isNaN(refreshRate)) {
-                warnings.push('options.refreshRate must be a number; using the default instead.');
+            if (typeof refreshRate !== 'number' || !Number.isFinite(refreshRate)) {
+                warnings.push('options.refreshRate must be a finite number; using the default instead.');
             }
             else if (refreshRate < settings_1.MIN_REFRESH_RATE_SEC) {
                 warnings.push(`options.refreshRate ${refreshRate}s is below the ${settings_1.MIN_REFRESH_RATE_SEC}s minimum; it will be clamped.`);
             }
+            else if (refreshRate > settings_1.MAX_REFRESH_RATE_SEC) {
+                warnings.push(`options.refreshRate ${refreshRate}s is above the ${settings_1.MAX_REFRESH_RATE_SEC}s maximum; it will be clamped.`);
+            }
         }
         if (diagnosticsInterval !== undefined) {
-            if (typeof diagnosticsInterval !== 'number' || Number.isNaN(diagnosticsInterval)) {
-                warnings.push('options.diagnosticsInterval must be a number; diagnostics will be disabled.');
+            if (typeof diagnosticsInterval !== 'number' || !Number.isFinite(diagnosticsInterval)) {
+                warnings.push('options.diagnosticsInterval must be a finite number; diagnostics will be disabled.');
             }
             else if (diagnosticsInterval < 0) {
                 warnings.push('options.diagnosticsInterval cannot be negative; diagnostics will be disabled.');
@@ -113,6 +116,10 @@ function validateConfig(config) {
             else if (diagnosticsInterval > 0 && diagnosticsInterval < settings_1.MIN_DIAGNOSTICS_INTERVAL_SEC) {
                 warnings.push(`options.diagnosticsInterval ${diagnosticsInterval}s is below the `
                     + `${settings_1.MIN_DIAGNOSTICS_INTERVAL_SEC}s minimum; it will be clamped.`);
+            }
+            else if (diagnosticsInterval > settings_1.MAX_DIAGNOSTICS_INTERVAL_SEC) {
+                warnings.push(`options.diagnosticsInterval ${diagnosticsInterval}s is above the `
+                    + `${settings_1.MAX_DIAGNOSTICS_INTERVAL_SEC}s maximum; it will be clamped.`);
             }
         }
         if (freezeThresholdCelsius !== undefined) {

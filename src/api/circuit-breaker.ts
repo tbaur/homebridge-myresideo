@@ -89,7 +89,10 @@ export class CircuitBreaker {
     const merged = { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, ...config }
     this.failureThreshold = merged.failureThreshold
     this.resetTimeout = merged.resetTimeout
-    this.halfOpenMax = merged.halfOpenMax
+    // At least one probe must be allowed. With a cap of 0, canRequest() would
+    // promote OPEN -> HALF_OPEN and then refuse every probe (0 < 0), wedging the
+    // breaker shut permanently with no path back to CLOSED.
+    this.halfOpenMax = Math.max(1, merged.halfOpenMax)
     this.failureWindow = merged.failureWindow ?? 60_000
     this.onStateChange = merged.onStateChange
   }

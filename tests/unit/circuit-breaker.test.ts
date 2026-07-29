@@ -345,5 +345,32 @@ describe('CircuitBreaker', () => {
     it('uses a single half-open probe by default', () => {
       expect(DEFAULT_CIRCUIT_BREAKER_CONFIG.halfOpenMax).toBe(1)
     })
+
+    it('always allows at least one half-open probe', () => {
+      // With a cap of 0, canRequest() would promote OPEN -> HALF_OPEN and then
+      // refuse every probe (0 < 0), wedging the breaker shut with no path back
+      // to CLOSED and permanently suppressing all traffic.
+      jest.useFakeTimers()
+      try {
+        const breaker = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeout: 1000,
+          halfOpenMax: 0,
+        })
+
+        breaker.recordFailure()
+        expect(breaker.state).toBe(CircuitState.OPEN)
+
+        jest.advanceTimersByTime(1001)
+        expect(breaker.canRequest()).toBe(true)
+        expect(breaker.state).toBe(CircuitState.HALF_OPEN)
+
+        breaker.trackHalfOpenRequest()
+        breaker.recordSuccess()
+        expect(breaker.state).toBe(CircuitState.CLOSED)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
   })
 })
