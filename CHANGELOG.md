@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.4.5](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.4...v1.4.5) (2026-07-29)
+
+
+### Bug Fixes
+
+* harden detector polling and quiet diagnostics logs ([#73](https://github.com/tbaur/homebridge-myresideo/issues/73)) ([c109b91](https://github.com/tbaur/homebridge-myresideo/commit/c109b912f9de47db80083db7443a4da081f38f8b))
+
 ## [1.4.4](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.3...v1.4.4) (2026-07-26)
 
 
