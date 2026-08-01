@@ -23,10 +23,12 @@ import {
 interface SchemaProperty {
   type?: string
   required?: unknown
+  default?: unknown
   minimum?: number
   maximum?: number
   properties?: Record<string, SchemaProperty>
   items?: SchemaProperty
+  'x-schema-form'?: { type?: string }
 }
 
 interface ConfigSchema {
@@ -140,6 +142,28 @@ describe('config.schema.json', () => {
     expect(prop?.minimum).toBe(min)
     expect(prop?.maximum).toBe(max)
   })
+
+  it('defaults diagnosticsInterval to 10800 (3 hours) in the settings UI', () => {
+    const prop = schema.schema.properties.options?.properties?.diagnosticsInterval
+    expect(prop?.default).toBe(10_800)
+  })
+
+  it.each(['options.refreshRate', 'options.diagnosticsInterval'])(
+    'renders %s as a number field (not a slider)',
+    (key) => {
+      // With a large maximum, config-ui-x defaults integer ranges to sliders that
+      // cannot land on exact multi-hour values. Force a plain number input.
+      const propKey = key.replace('options.', '')
+      const prop = schema.schema.properties.options?.properties?.[propKey]
+      expect(prop?.['x-schema-form']?.type).toBe('number')
+
+      const layoutJson = JSON.stringify(schema.layout)
+      expect(layoutJson).toContain(`"key":"${key}"`)
+      expect(layoutJson).toMatch(
+        new RegExp(`"key"\\s*:\\s*"${key.replace('.', '\\.')}"[^}]*"type"\\s*:\\s*"number"`),
+      )
+    },
+  )
 
   it.each([
     ['options.freezeThresholdCelsius', () => schema.schema.properties.options?.properties?.freezeThresholdCelsius],
