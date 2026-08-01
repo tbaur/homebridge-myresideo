@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.4.6](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.5...v1.4.6) (2026-08-01)
+
+
+### Bug Fixes
+
+* replace interval sliders with number fields ([#76](https://github.com/tbaur/homebridge-myresideo/issues/76)) ([46a39d1](https://github.com/tbaur/homebridge-myresideo/commit/46a39d1628c7ea1b0d5ba70e4b8910a0aa7af85d))
+
 ## [1.4.5](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.4...v1.4.5) (2026-07-29)
 
 
