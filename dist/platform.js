@@ -13,6 +13,7 @@ const node_fs_1 = require("node:fs");
 const api_1 = require("./api");
 const leak_sensor_1 = require("./devices/leak-sensor");
 const collector_1 = require("./diagnostics/collector");
+const format_1 = require("./diagnostics/format");
 const errors_1 = require("./errors");
 const settings_1 = require("./settings");
 const utils_1 = require("./utils");
@@ -776,11 +777,20 @@ class ResideoPlatform {
             devices: () => this.collectDeviceGauges(),
             tokenExpiresInSec: () => this.tokenManager?.getStatus().expiresInSec ?? null,
             tokenLastRefreshAt: () => this.tokenManager?.getStatus().lastRefreshAt ?? null,
-            tokenRefreshFailureActive: () => this.lastRefreshFailureAt !== null
-                && Date.now() - this.lastRefreshFailureAt < settings_1.TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
+            tokenRefreshFailureActive: () => this.isTokenRefreshFailureActive(),
             emptyDiscoveryActive: () => this.emptyDiscoveryActive,
             pollingCadenceSec: () => this.pollingCadenceSeconds(),
+            restState: () => (0, format_1.resolveRestTransportState)({
+                stopped: this.stopped,
+                authFailed: this.isTokenRefreshFailureActive(),
+                pollingArmed: this.pollTimer !== undefined,
+            }),
         };
+    }
+    /** True while a recent token-refresh failure is still in its cooldown window. */
+    isTokenRefreshFailureActive() {
+        return this.lastRefreshFailureAt !== null
+            && Date.now() - this.lastRefreshFailureAt < settings_1.TOKEN_REFRESH_FAILURE_COOLDOWN_MS;
     }
     /**
      * Compute absolute device gauges from the latest polled state stored on each
@@ -816,7 +826,7 @@ class ResideoPlatform {
         // A transition logs a concise state-only human line, since the heartbeat that
         // detected it already emitted the full metrics body; everything else logs the
         // full summary line.
-        this.log[level](options.concise ? formatHealthTransitionLine(report) : formatDiagnosticLine(report));
+        this.log[level](options.concise ? (0, format_1.formatHealthTransitionLine)(report) : (0, format_1.formatDiagnosticLine)(report));
         if (this.config.options?.structuredLogs) {
             // Emit the report as-is: `msg` plus the nested groups (lifecycle, devices,
             // polling, token, api, activity, and the config echo on snapshots). The
@@ -956,59 +966,4 @@ class ResideoPlatform {
     }
 }
 exports.default = ResideoPlatform;
-/** Human-readable label for a diagnostics channel (structured JSON keeps `msg`). */
-function diagnosticLabel(msg) {
-    switch (msg) {
-        case 'health':
-            return 'Health';
-        case 'diagnostics.start':
-            return 'Diagnostics start';
-        case 'diagnostics.stop':
-            return 'Diagnostics stop';
-        case 'health.degraded':
-            return 'Health degraded';
-        case 'health.recovered':
-            return 'Health recovered';
-        default:
-            return msg;
-    }
-}
-/** Render the bracketed reason list shown after the health state (empty when healthy). */
-function formatReasons(reasons) {
-    return reasons.length > 0 ? ` [${reasons.join(', ')}]` : '';
-}
-/** Build the concise human-readable summary line for a diagnostics report. */
-function formatDiagnosticLine(report) {
-    const { lifecycle, devices, circuitBreaker, polling, api, activity } = report;
-    const reasonText = formatReasons(lifecycle.reasons);
-    const pollDuration = polling.lastDurationMs === null ? 'n/a' : `${polling.lastDurationMs}ms`;
-    // Keep the healthy-path line short. Leak count and breaker state only appear
-    // when they carry signal (an active leak, or a breaker that is not CLOSED);
-    // token expiry and zero leak/CLOSED breaker stay in the structured-JSON report
-    // for parsers. This plugin is polling-only, so each device poll is one API
-    // request: report poll outcome once and keep only the latency percentiles as
-    // the API signal.
-    const parts = [
-        `${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText}`,
-        devices.leak > 0
-            ? `devices ${devices.online}/${devices.total} (${devices.leak} leak)`
-            : `devices ${devices.online}/${devices.total}`,
-    ];
-    if (circuitBreaker.state !== 'CLOSED') {
-        parts.push(`breaker ${circuitBreaker.state}`);
-    }
-    parts.push(`poll ${pollDuration} ok ${polling.ok} failed ${polling.failed} retried ${activity.retries}`, `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms`);
-    return parts.join(' | ');
-}
-/**
- * Concise health-transition notice: state and reasons only. The heartbeat that
- * detected the change already emitted the full metrics body on the line above,
- * so repeating it here would just duplicate that content. Degraded transitions
- * are logged at warn, so this keeps the actionable reasons visible in
- * warn-filtered logs without the redundant tail.
- */
-function formatHealthTransitionLine(report) {
-    const reasonText = formatReasons(report.lifecycle.reasons);
-    return `${diagnosticLabel(report.msg)}: ${report.lifecycle.health}${reasonText}`;
-}
 //# sourceMappingURL=platform.js.map

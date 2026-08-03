@@ -24,6 +24,11 @@ import { LeakSensorAccessory } from './devices/leak-sensor'
 import { DiagnosticsCollector } from './diagnostics/collector'
 import type { DiagnosticsReaders } from './diagnostics/collector'
 import {
+  formatDiagnosticLine,
+  formatHealthTransitionLine,
+  resolveRestTransportState,
+} from './diagnostics/format'
+import {
   ApiResponseError,
   AuthenticationError,
   ConfigurationError,
@@ -894,12 +899,21 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       devices: () => this.collectDeviceGauges(),
       tokenExpiresInSec: () => this.tokenManager?.getStatus().expiresInSec ?? null,
       tokenLastRefreshAt: () => this.tokenManager?.getStatus().lastRefreshAt ?? null,
-      tokenRefreshFailureActive: () =>
-        this.lastRefreshFailureAt !== null
-        && Date.now() - this.lastRefreshFailureAt < TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
+      tokenRefreshFailureActive: () => this.isTokenRefreshFailureActive(),
       emptyDiscoveryActive: () => this.emptyDiscoveryActive,
       pollingCadenceSec: () => this.pollingCadenceSeconds(),
+      restState: () => resolveRestTransportState({
+        stopped: this.stopped,
+        authFailed: this.isTokenRefreshFailureActive(),
+        pollingArmed: this.pollTimer !== undefined,
+      }),
     }
+  }
+
+  /** True while a recent token-refresh failure is still in its cooldown window. */
+  private isTokenRefreshFailureActive(): boolean {
+    return this.lastRefreshFailureAt !== null
+      && Date.now() - this.lastRefreshFailureAt < TOKEN_REFRESH_FAILURE_COOLDOWN_MS
   }
 
   /**
@@ -1100,66 +1114,4 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     )
     return undefined
   }
-}
-
-/** Human-readable label for a diagnostics channel (structured JSON keeps `msg`). */
-function diagnosticLabel(msg: string): string {
-  switch (msg) {
-    case 'health':
-      return 'Health'
-    case 'diagnostics.start':
-      return 'Diagnostics start'
-    case 'diagnostics.stop':
-      return 'Diagnostics stop'
-    case 'health.degraded':
-      return 'Health degraded'
-    case 'health.recovered':
-      return 'Health recovered'
-    default:
-      return msg
-  }
-}
-
-/** Render the bracketed reason list shown after the health state (empty when healthy). */
-function formatReasons(reasons: string[]): string {
-  return reasons.length > 0 ? ` [${reasons.join(', ')}]` : ''
-}
-
-/** Build the concise human-readable summary line for a diagnostics report. */
-function formatDiagnosticLine(report: DiagnosticsSnapshot): string {
-  const { lifecycle, devices, circuitBreaker, polling, api, activity } = report
-  const reasonText = formatReasons(lifecycle.reasons)
-  const pollDuration = polling.lastDurationMs === null ? 'n/a' : `${polling.lastDurationMs}ms`
-  // Keep the healthy-path line short. Leak count and breaker state only appear
-  // when they carry signal (an active leak, or a breaker that is not CLOSED);
-  // token expiry and zero leak/CLOSED breaker stay in the structured-JSON report
-  // for parsers. This plugin is polling-only, so each device poll is one API
-  // request: report poll outcome once and keep only the latency percentiles as
-  // the API signal.
-  const parts: string[] = [
-    `${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText}`,
-    devices.leak > 0
-      ? `devices ${devices.online}/${devices.total} (${devices.leak} leak)`
-      : `devices ${devices.online}/${devices.total}`,
-  ]
-  if (circuitBreaker.state !== 'CLOSED') {
-    parts.push(`breaker ${circuitBreaker.state}`)
-  }
-  parts.push(
-    `poll ${pollDuration} ok ${polling.ok} failed ${polling.failed} retried ${activity.retries}`,
-    `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms`,
-  )
-  return parts.join(' | ')
-}
-
-/**
- * Concise health-transition notice: state and reasons only. The heartbeat that
- * detected the change already emitted the full metrics body on the line above,
- * so repeating it here would just duplicate that content. Degraded transitions
- * are logged at warn, so this keeps the actionable reasons visible in
- * warn-filtered logs without the redundant tail.
- */
-function formatHealthTransitionLine(report: DiagnosticsSnapshot): string {
-  const reasonText = formatReasons(report.lifecycle.reasons)
-  return `${diagnosticLabel(report.msg)}: ${report.lifecycle.health}${reasonText}`
 }

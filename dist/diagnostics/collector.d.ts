@@ -20,7 +20,7 @@
  * It only ever reads in-memory state via the supplied `readers`; it never
  * performs any network I/O.
  */
-import type { DeviceGauges, DiagnosticsSnapshot, ResideoPlatformConfig } from '../types';
+import type { DeviceGauges, DiagnosticsSnapshot, ResideoPlatformConfig, RestTransportState } from '../types';
 /** Subset of `client.getStatus()` the collector relies on. */
 export interface ClientStatusLike {
     circuitBreaker: {
@@ -40,6 +40,8 @@ export interface DiagnosticsReaders {
     /** True while discovery is retrying after an empty cloud device list. */
     emptyDiscoveryActive: () => boolean;
     pollingCadenceSec: () => number;
+    /** Current REST poll-path lifecycle (resolved by the platform). */
+    restState: () => RestTransportState;
 }
 interface CollectorOptions {
     pluginVersion: string;
