@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [1.4.7](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.6...v1.4.7) (2026-08-03)
+
+
+### Bug Fixes
+
+* align health diagnostics with sibling REST transport state ([#78](https://github.com/tbaur/homebridge-myresideo/issues/78)) ([a485226](https://github.com/tbaur/homebridge-myresideo/commit/a485226ce7cd2ee4ba3786fdb7df81d2a72e8e12))
+
 ## [1.4.6](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.5...v1.4.6) (2026-08-01)
 
 
