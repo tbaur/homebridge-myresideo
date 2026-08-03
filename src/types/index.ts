@@ -189,10 +189,19 @@ export interface DeviceGauges {
 }
 
 /**
+ * REST polling transport lifecycle (mynest-aligned raw states).
+ *
+ * Mapped to the human health line as: `running` → `live`, others unchanged
+ * (`connecting`, `stopped`, `auth-failed`).
+ */
+export type RestTransportState = 'running' | 'connecting' | 'stopped' | 'auth-failed'
+
+/**
  * One opt-in diagnostics report. Because the plugin is polling-only and exposes
  * read-only sensors, this is a reduced version of myleviton's snapshot: there is
  * no WebSocket, rate limiter, or cache to report on. The circuit breaker is
- * included because sustained Resideo outages trip it.
+ * included because sustained Resideo outages trip it. REST transport state is
+ * the polling-path analogue of mynest's `rest` / `obs` lifecycle labels.
  */
 export interface DiagnosticsSnapshot {
   /** Channel identifier, e.g. `health`, `diagnostics.start`, `diagnostics.stop`. */
@@ -204,6 +213,10 @@ export interface DiagnosticsSnapshot {
     pluginVersion: string
   }
   devices: DeviceGauges
+  /** REST poll-path lifecycle (see {@link RestTransportState}). */
+  transport: {
+    restState: RestTransportState
+  }
   circuitBreaker: {
     state: string
     lastTripAt: number | null

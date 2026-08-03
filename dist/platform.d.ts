@@ -148,6 +148,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * network I/O.
      */
     private buildDiagnosticsReaders;
+    /** True while a recent token-refresh failure is still in its cooldown window. */
+    private isTokenRefreshFailureActive;
     /**
      * Compute absolute device gauges from the latest polled state stored on each
      * accessory's context. Reachability and active conditions are the meaningful

@@ -1228,17 +1228,18 @@ describe('diagnostics', () => {
       .map(args => args[0] as string)
       .find(line => typeof line === 'string' && line.includes('Health: healthy'))
     expect(healthLine).toBeDefined()
-    // Healthy-path line stays quiet: devices + poll + api latency. Leak and
+    // Sibling shape: devices | rest <state> | api p50/p95 (req, err). Leak and
     // breaker only appear when they carry signal; token expiry stays in JSON.
     expect(healthLine).toContain('devices ')
-    expect(healthLine).toContain('poll')
-    expect(healthLine).toContain('retried')
-    expect(healthLine).toContain('api p50')
+    expect(healthLine).toMatch(/rest (live|connecting|stopped|auth-failed)/)
+    expect(healthLine).toContain('rest live')
+    expect(healthLine).toMatch(/api p50 \d+ms p95 \d+ms \(req \d+, err \d+\)/)
     expect(healthLine).not.toContain('latency p50')
     expect(healthLine).not.toContain('breaker ')
     expect(healthLine).not.toContain(' leak')
     expect(healthLine).not.toContain('token exp')
-    expect(healthLine).not.toContain('req ')
+    expect(healthLine).not.toMatch(/\bpoll\b/)
+    expect(healthLine).not.toContain('retried')
 
     handlers.shutdown()
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Diagnostics stop'))

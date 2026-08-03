@@ -7,7 +7,7 @@
 
 import { DiagnosticsCollector } from '../../../src/diagnostics/collector'
 import type { DiagnosticsReaders } from '../../../src/diagnostics/collector'
-import type { ResideoPlatformConfig } from '../../../src/types'
+import type { ResideoPlatformConfig, RestTransportState } from '../../../src/types'
 
 const baseConfig = (): ResideoPlatformConfig => ({
   platform: 'MyResideo',
@@ -45,6 +45,7 @@ const makeReaders = (): MutableReaders => {
   const tokenRefreshFailureActive = { value: false }
   const emptyDiscoveryActive = { value: false }
 
+  const restState = { value: 'running' as RestTransportState }
   const readers: DiagnosticsReaders = {
     clientStatus: () => ({ circuitBreaker: { state: circuitBreakerState.value } }),
     devices: () => ({ ...devices }),
@@ -53,6 +54,7 @@ const makeReaders = (): MutableReaders => {
     tokenRefreshFailureActive: () => tokenRefreshFailureActive.value,
     emptyDiscoveryActive: () => emptyDiscoveryActive.value,
     pollingCadenceSec: () => 120,
+    restState: () => restState.value,
   }
 
   return {
@@ -343,6 +345,17 @@ describe('DiagnosticsCollector', () => {
       const m = makeReaders()
       const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
       expect(collector.buildHeartbeat(m.readers).config).toBeUndefined()
+    })
+
+    it('includes the REST transport lifecycle from the readers', () => {
+      const m = makeReaders()
+      const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
+      expect(collector.buildHeartbeat(m.readers).transport.restState).toBe('running')
+
+      // Swap the reader to auth-failed and confirm the snapshot carries it.
+      m.readers.restState = () => 'auth-failed'
+      expect(collector.snapshot('diagnostics.stop', m.readers).transport.restState)
+        .toBe('auth-failed')
     })
   })
 })

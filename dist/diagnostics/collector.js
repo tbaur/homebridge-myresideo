@@ -242,6 +242,9 @@ class DiagnosticsCollector {
                 pluginVersion: this.pluginVersion,
             },
             devices: readers.devices(),
+            transport: {
+                restState: readers.restState(),
+            },
             circuitBreaker: {
                 state: status.circuitBreaker.state,
                 lastTripAt: this.lastTripAt,

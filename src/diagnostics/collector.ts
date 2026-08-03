@@ -21,7 +21,12 @@
  * performs any network I/O.
  */
 
-import type { DeviceGauges, DiagnosticsSnapshot, ResideoPlatformConfig } from '../types'
+import type {
+  DeviceGauges,
+  DiagnosticsSnapshot,
+  ResideoPlatformConfig,
+  RestTransportState,
+} from '../types'
 
 /** Maximum number of recent request latencies retained for percentile math. */
 const LATENCY_WINDOW = 200
@@ -53,6 +58,8 @@ export interface DiagnosticsReaders {
   /** True while discovery is retrying after an empty cloud device list. */
   emptyDiscoveryActive: () => boolean
   pollingCadenceSec: () => number
+  /** Current REST poll-path lifecycle (resolved by the platform). */
+  restState: () => RestTransportState
 }
 
 interface CollectorOptions {
@@ -324,6 +331,9 @@ export class DiagnosticsCollector {
         pluginVersion: this.pluginVersion,
       },
       devices: readers.devices(),
+      transport: {
+        restState: readers.restState(),
+      },
       circuitBreaker: {
         state: status.circuitBreaker.state,
         lastTripAt: this.lastTripAt,
