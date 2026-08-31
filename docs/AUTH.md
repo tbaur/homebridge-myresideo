@@ -1,5 +1,7 @@
 # Account Linking & Token Lifecycle
 
+Install and options: [README](../README.md). Full options and troubleshooting: [README-DETAILED.md](README-DETAILED.md). API notes: [API.md](API.md).
+
 ## Getting credentials
 
 1. Sign in / register at <https://developer.honeywellhome.com/user>.

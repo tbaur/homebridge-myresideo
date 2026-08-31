@@ -1,5 +1,7 @@
 # Resideo / Honeywell Home API Reference
 
+Account linking: [AUTH.md](AUTH.md). User-facing options: [README-DETAILED.md](README-DETAILED.md).
+
 Evaluation of the API as published at <https://developer.honeywellhome.com>, scoped to what this plugin needs (OAuth2 + Water Leak Detector).
 
 > **Important:** The base host is **`https://api.honeywellhome.com`**. The older `api.honeywell.com` host is deprecated and must not be used.
