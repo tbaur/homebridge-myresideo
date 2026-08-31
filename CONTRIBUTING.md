@@ -72,7 +72,7 @@ Example: `feat: add temperature sensor for leak detectors`
 
 - [ ] Tests added/updated
 - [ ] Linting passes
-- [ ] Documentation updated
+- [ ] Documentation updated ([README.md](README.md) for install, [docs/README-DETAILED.md](docs/README-DETAILED.md) for options and troubleshooting)
 - [ ] Descriptive PR title (Conventional Commits)
 
 ## Adding Device Support

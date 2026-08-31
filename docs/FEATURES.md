@@ -2,6 +2,8 @@
 
 **homebridge-myresideo**
 
+Install and a short options table: [README](../README.md). Full options, polling, and troubleshooting: [README-DETAILED.md](README-DETAILED.md).
+
 ## Core Features
 
 - ✅ Automatic device discovery from the Resideo / Honeywell Home cloud at startup (restart Homebridge to pick up newly-added detectors)

@@ -1,5 +1,7 @@
 # Development
 
+User-facing install and options: [README.md](README.md). Full options, polling, and troubleshooting: [docs/README-DETAILED.md](docs/README-DETAILED.md). Account linking: [docs/AUTH.md](docs/AUTH.md). Feature checklist: [docs/FEATURES.md](docs/FEATURES.md).
+
 ## Architecture
 
 ```

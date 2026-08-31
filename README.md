@@ -12,31 +12,26 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 ## Features
 
 ### Device Support
-- **Automatic Discovery** — At startup, finds every water leak detector across all locations on your account, and removes detectors only after they are confirmed gone from it (restart Homebridge to pick up newly-added detectors)
-- **Leak Detection** — HomeKit Leak Sensor that reflects the water-present state on each polling cycle (default every 120s; see [polling](#configuration-options))
-- **Temperature & Humidity** — Exposed as standard HomeKit sensors (each can be hidden); a missing reading is flagged as a fault rather than shown as a stale value
-- **Battery** — Battery level plus low-battery status
-- **Connectivity & Alarms** — An offline detector or any active device alarm (e.g. high humidity) is surfaced as a HomeKit fault on the Leak Sensor, and the alarm type is logged when it changes
-- **Freeze Sensor** *(optional)* — A HomeKit contact sensor that trips when the temperature drops to or below a configurable threshold
+- **Automatic discovery** at startup, across every location on the account. Restart Homebridge to pick up a newly added detector
+- **Leak Sensor** that follows the water-present state on each poll (default every 120s)
+- **Temperature and humidity** as standard HomeKit sensors (each can be hidden). A missing reading is a fault, not a stale value
+- **Battery** level and low-battery status
+- **Offline and alarm faults** on the Leak Sensor (for example high humidity)
+- **Optional freeze contact sensor** when temperature drops to or below a threshold
 
 ### Reliability
-- **Resilient OAuth2** — Access tokens are refreshed proactively, before they expire, so polling never stalls on an expired token
-- **Token Persistence** — After every successful refresh, the current refresh and access tokens are persisted automatically and survive restarts
-- **Single-Flight Refresh** — Concurrent calls share one token refresh instead of stampeding the auth endpoint
-- **Automatic Retry** — Transient network, timeout, 5xx, and 429 errors are retried with exponential backoff (API calls and token refresh honor `Retry-After` when present)
-- **Circuit Breaker** — Sustained Resideo API failures open a circuit breaker so polling fails fast instead of hammering a dead endpoint; a single half-open probe checks recovery; OPEN is logged at warn, HALF_OPEN probes and CLOSED recovery at info
-- **Self-Healing Discovery** — A transient outage at startup is retried with capped backoff instead of leaving the plugin inert until a restart
-- **Clear Re-Link Signaling** — An expired/invalid refresh token, or rejected API credentials, produce a clear, actionable log message instead of a silent failure loop (including once per poll cycle after discovery)
-- **Readable Logs** — Each poll logs only what changed (leak, online/offline, low battery, freeze, alarms) once per transition; routine poll misses stay at debug; outages surface via circuit-breaker transitions rather than per-device error spam
-- **Per-Check-In Reports** — Each detector reports to the cloud on its configured schedule (the Resideo app's 1–3×/day update frequency); polling asks Resideo for the latest cloud snapshot more often than devices typically upload, and when `lastCheckin` advances the plugin logs a one-line summary — prefixed with that detector's name — of its current readings and poll latency
-- **Health Diagnostics** — Periodic health report (default every 3 hours; set `diagnosticsInterval` to `0` to disable): device online count, REST transport state (`live` / `connecting` / `stopped` / `auth-failed`), and API latency (p50/p95 with request/error counts), with a `healthy`/`degraded` rollup. An active leak and a non-CLOSED circuit breaker appear only when they carry signal; token expiry and full counters stay in the optional structured JSON. Healthy↔degraded transitions are logged as they happen, and `structuredLogs` adds a machine-readable JSON line alongside the human summary
-- **Secret Hygiene** — Credentials are never logged; API error messages never include query strings or the `apikey`
+- **OAuth2 tokens refresh before they expire**, and are written back to `config.json` after every successful refresh
+- **Retries** for transient network, timeout, 5xx, and 429 errors
+- **Circuit breaker** during a sustained Resideo outage, so polling fails fast
+- **Keeps cached detectors** if the cloud returns an empty or partial list
+- **Diagnostics** *(optional):* periodic health lines in the Homebridge log
 
 ### Quality
-- **Strict TypeScript** — `strict` mode (`noImplicitAny`, `strictNullChecks`, no unused locals/params, no implicit returns, and more)
-- **Tested Core** — Jest suite with a ≥80% coverage gate across statements, branches, functions, and lines
-- **CI on Every PR** — Build, lint, and test across Node 20/22/24, plus a dependency audit
-- **No Analytics** — Zero tracking or data collection
+- **Strict TypeScript** and a Jest suite with an 80% coverage gate
+- **Secret hygiene:** credentials never reach the log
+- **No analytics**
+
+Every option, poll/check-in detail, and troubleshooting step is in [Detailed documentation](docs/README-DETAILED.md).
 
 ## Quick Start
 
@@ -44,7 +39,6 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 
 **Homebridge UI** (recommended): Plugins → Search `homebridge-myresideo` → Install
 
-**Command line:**
 ```bash
 npm install -g homebridge-myresideo
 ```
@@ -53,7 +47,9 @@ npm install -g homebridge-myresideo
 
 Create a developer application at [developer.honeywellhome.com](https://developer.honeywellhome.com) to obtain a **Consumer Key (API Key)** and **Consumer Secret (API Secret)**.
 
-> **Link your account in the plugin settings.** After installing, open this plugin's settings in the Homebridge UI and use the **Link your Resideo account** panel: enter your Consumer Key and Secret, click **Open Resideo sign-in**, approve access, then paste the **full redirect URL** from the address bar back to finish — the access/refresh tokens are exchanged and saved for you. Paste the full URL so the OAuth `state` can be verified. The `code` travels in the redirect URL itself, so this works the same whether Homebridge runs locally or on a remote host. Prefer the command line? The included `get-tokens` helper runs the same flow from a clone of this repo (`npm install && npm run get-tokens`). The full walkthrough — registering the redirect URL, the paste step, and the script fallback — is in [`docs/AUTH.md`](docs/AUTH.md); the underlying API is documented in [`docs/API.md`](docs/API.md).
+Then open this plugin's settings and use **Link your Resideo account**: enter the key and secret, click **Open Resideo sign-in**, approve access, and paste the **full redirect URL** from the address bar. Tokens are exchanged and saved for you.
+
+The full walkthrough is in [docs/AUTH.md](docs/AUTH.md). The API is documented in [docs/API.md](docs/API.md).
 
 ### 3. Configure
 
@@ -81,55 +77,45 @@ Use the Homebridge UI (recommended) or add the platform to your config:
 
 ### 4. Restart Homebridge
 
-Your detectors are discovered at startup and appear in the Home app automatically. If you add a new detector to your Honeywell Home account later, restart Homebridge to pick it up. If Resideo returns an empty or partial device list during a cloud outage, the plugin keeps cached accessories, keeps retrying discovery, and only removes a detector after it is missing from several consecutive non-empty discoveries while the platform is stable (not degraded, breaker closed) — so a blip cannot wipe HomeKit.
+Detectors appear in the Home app after startup discovery. Restart Homebridge after you add a detector to the Honeywell Home account.
 
 ## Supported Devices
 
 | Type | Description |
 |------|-------------|
-| **WiFi Water Leak & Freeze Detector** | Resideo / Honeywell Home water leak detectors (`deviceClass: LeakDetector`), including temperature, humidity, and battery reporting |
+| **WiFi Water Leak & Freeze Detector** | Resideo / Honeywell Home water leak detectors (`deviceClass: LeakDetector`), including temperature, humidity, and battery |
 
 ## Configuration Options
 
 | Option | Required | Description |
 |--------|:--------:|-------------|
-| `name` | ✓ | Plugin instance name shown in the Homebridge log (required by the schema; pre-filled with `MyResideo`) |
+| `name` | ✓ | Plugin instance name in the Homebridge log |
 | `credentials.consumerKey` | ✓ | Resideo developer application API Key |
 | `credentials.consumerSecret` | ✓ | Resideo developer application API Secret |
-| `credentials.refreshToken` | ✓ | OAuth2 refresh token (set when linking your account) |
-| `credentials.accessToken` | | OAuth2 access token (set when linking your account) |
-| `options.refreshRate` | | Seconds between status polls (default: 120, minimum: 30, maximum: 86400). Out-of-range values are clamped; a non-numeric value falls back to the default. |
-| `options.freezeThresholdCelsius` | | Default freeze threshold in °C, between -40 and 40 (values outside that range are ignored). Leave unset to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence. |
-| `options.diagnosticsInterval` | | Seconds between health-report log lines (default: 10800 / 3 hours). `0` disables. Values 1–29 are clamped up to 30; maximum is 86400 (24h). |
-| `options.structuredLogs` | | When diagnostics are enabled, also emit a machine-readable JSON line alongside the human-readable summary (default: false) |
-| `options.devices[]` | | Per-device overrides (see below) |
+| `credentials.refreshToken` | ✓ | OAuth2 refresh token (set when linking) |
+| `credentials.accessToken` | | OAuth2 access token (set when linking) |
+| `options.refreshRate` | | Seconds between status polls (default 120, min 30, max 86400) |
+| `options.freezeThresholdCelsius` | | Default freeze threshold in °C (−40 to 40). Unset uses the device's own limit |
+| `options.diagnosticsInterval` | | Seconds between health-report log lines (default 10800). `0` disables |
+| `options.structuredLogs` | | With diagnostics, also emit a JSON line (default false) |
+| `options.devices[]` | | Per-device overrides, keyed by `deviceID` |
 
-Per-device overrides (`options.devices[]`), keyed by `deviceID`:
-
-| Option | Required | Description |
-|--------|:--------:|-------------|
-| `deviceID` | ✓ | Honeywell device ID the override applies to (entries without it are ignored) |
-| `name` | | Display-name override for the accessory |
-| `hideTemperatureSensor` | | Hide the temperature sensor service |
-| `hideHumiditySensor` | | Hide the humidity sensor service |
-| `enableFreezeSensor` | | Expose a freeze contact sensor for this device |
-| `freezeThresholdCelsius` | | Freeze threshold override in °C for this device, between -40 and 40 (values outside that range are ignored) |
+Per-device overrides and clamp rules are in the [detailed documentation](docs/README-DETAILED.md#full-configuration-reference).
 
 ## Not Working?
 
-1. **Check credentials** — Consumer Key/Secret must match your Resideo developer app, and the account must be linked
-2. **Re-link if prompted** — A "refresh token invalid" log message means you need to re-link your account
-3. **Check device status** — Detectors must be online in the Honeywell Home app
-4. **Restart Homebridge** — Required after any config change
+1. **Check credentials.** Consumer Key/Secret must match your Resideo developer app, and the account must be linked.
+2. **Re-link if prompted.** A "refresh token invalid" log means you need to link again.
+3. **Check the Honeywell Home app.** Detectors must be online there.
+4. **Restart Homebridge** after any config change.
+
+The [full troubleshooting list](docs/README-DETAILED.md#troubleshooting) covers empty discovery, stale removal, and how often a detector actually reports.
 
 ## Security
 
-This plugin uses Resideo's OAuth2 flow, so it stores OAuth tokens (not your account password) in Homebridge's `config.json`. Because Homebridge keeps plugin config in plain text, those tokens live unencrypted on the Homebridge host.
+This plugin stores OAuth tokens (not your account password) in Homebridge's plaintext `config.json`. Anyone who can read files on the host can read those tokens. Redact `credentials` before posting logs or backups.
 
-- **Secure the Homebridge host.** Anyone who can read files on it can read your tokens.
-- **Scrub before sharing.** Redact `credentials` from `config.json` before posting logs or backups.
-
-The plugin talks to Resideo over TLS only, redacts every credential — API Key and Secret, access and refresh tokens, the `apikey` query parameter, and `Authorization` headers — from its logs, and never collects analytics. See [`SECURITY.md`](SECURITY.md).
+The plugin talks to Resideo over TLS only and redacts every credential from its logs. See [SECURITY.md](SECURITY.md).
 
 ## Requirements
 
@@ -139,6 +125,11 @@ The plugin talks to Resideo over TLS only, redacts every credential — API Key 
 
 ## More Info
 
+- [Detailed documentation](docs/README-DETAILED.md)
+- [Account linking](docs/AUTH.md)
+- [API notes](docs/API.md)
+- [Features](docs/FEATURES.md)
+- [Development](DEVELOPMENT.md)
 - [Report Issues](https://github.com/tbaur/homebridge-myresideo/issues)
 - [Changelog](CHANGELOG.md)
 
