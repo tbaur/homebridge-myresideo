@@ -46,7 +46,7 @@ scripts/
 ## Design principles
 
 - **Dependency-light by design.** The Homebridge plugin runtime uses Node's native `https` and pulls in no third-party code. The package declares a single runtime dependency, `@homebridge/plugin-ui-utils` (itself dependency-free), used only by the optional custom settings UI that the Homebridge UI runs out-of-process — it is never loaded by the plugin at runtime. `homebridge` is a dev-only dependency (types) injected at runtime by the host, and `npm audit --omit=dev` reports zero advisories.
-- **Dev-dependency hygiene.** Two `overrides` entries pin transitive dev dependencies away from known advisories: `js-yaml` to `^4.2.0`, eliminating a moderate advisory (GHSA-h67p-54hq-rp68) that reached `js-yaml@3.x` via jest's coverage chain (`babel-plugin-istanbul` → `@istanbuljs/load-nyc-config`), and `brace-expansion` to `5.0.8`. Both are dev-only and never shipped.
+- **Dev-dependency hygiene.** Two `overrides` entries pin transitive dev dependencies away from known advisories: `js-yaml` to `^4.3.1` (GHSA-h67p-54hq-rp68 on 3.x via Jest coverage, and GHSA-5p4m-2wfm-xmqj on 4.x below 4.3.1), and `brace-expansion` to `5.0.8`. Both are dev-only and never shipped.
 - **Pure logic is isolated** in `utils/` and `errors/` so it is trivially unit-testable; network/HAP code accepts injectable transports for testing.
 - **Strict TypeScript** (`noImplicitAny`, `noUnusedLocals`, etc.).
 - **Fail fast on bad config.** `validateConfig` runs in the platform constructor; fatal errors stop the plugin with an actionable message, non-fatal issues log a warning and fall back to defaults.
