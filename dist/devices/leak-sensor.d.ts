@@ -112,6 +112,10 @@ export declare class LeakSensorAccessory {
      * last-known reading is still shown), and raises a general fault when the
      * reading is missing or the device is offline (and the value is therefore
      * stale) instead of presenting unreliable data as current.
+     *
+     * A non-finite value (NaN or Infinity from a malformed payload) says nothing
+     * about the sensor, so it counts as missing rather than being presented as
+     * data; a usable value is clamped to what the characteristic accepts.
      */
     private applyReading;
 }

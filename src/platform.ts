@@ -9,6 +9,7 @@
  */
 
 import { promises as fs } from 'node:fs'
+import type { FileHandle } from 'node:fs/promises'
 
 import type {
   API,
@@ -93,9 +94,61 @@ const PLUGIN_VERSION = readPluginVersion()
 /** How many times to rewrite config.json if a concurrent save clobbers the new tokens. */
 const TOKEN_PERSIST_MAX_ATTEMPTS = 3
 
+/** Owner-only mode for a temp file that holds the OAuth refresh and access tokens. */
+const TOKEN_FILE_MODE = 0o600
+
 /** Clamp a configured interval into the range a timer can represent safely. */
 function clampSeconds(seconds: number, min: number, max: number): number {
   return Math.min(Math.max(seconds, min), max)
+}
+
+/**
+ * Give the handle `uid`/`gid` when this process is allowed to.
+ *
+ * Only attempted when ownership actually differs — Homebridge normally runs as
+ * the owner of its own config, so this is usually a no-op — and a refusal is
+ * ignored: a non-root process cannot hand a file to another user, and losing a
+ * rotated token over an ownership mismatch would cost the user their account link.
+ */
+async function chownIfPermitted(handle: FileHandle, uid: number, gid: number): Promise<void> {
+  // Windows has no real uid/gid and does not implement getuid, so there is
+  // nothing to copy.
+  if (process.getuid === undefined || process.getgid === undefined) {
+    return
+  }
+  if (process.getuid() === uid && process.getgid() === gid) {
+    return
+  }
+  try {
+    await handle.chown(uid, gid)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code !== 'EPERM' && code !== 'EACCES') {
+      throw err
+    }
+  }
+}
+
+/**
+ * Copy `source`'s permissions — and its owner, where permitted — onto an open handle.
+ *
+ * The rename that publishes a temp file replaces the destination's inode, so the
+ * live file ends up with whatever the temp file carried. Without this, a user who
+ * ran `chmod 600 config.json` would silently have it widened to the default 0644
+ * on the first token rotation, exposing every plugin's credentials in that file
+ * and not just this one's. Copying the original mode (rather than forcing 0600)
+ * keeps a token rotation from changing who can read the file in either direction.
+ * When `source` cannot be stat'd there is nothing to match, and the handle keeps
+ * the owner-only mode it was created with.
+ */
+async function inheritFileOwnership(handle: FileHandle, source: string): Promise<void> {
+  const original = await fs.stat(source).catch(() => undefined)
+  if (original === undefined) {
+    return
+  }
+  // `mode` carries the file-type bits too; chmod only accepts permission bits.
+  await handle.chmod(original.mode & 0o7777)
+  await chownIfPermitted(handle, original.uid, original.gid)
 }
 
 /**
@@ -105,11 +158,16 @@ function clampSeconds(seconds: number, min: number, max: number): number {
  * the page cache when the follow-up rename publishes the file. A crash in that
  * window would leave a truncated config — and since the whole file is rewritten,
  * that costs the user every platform's settings, not just these tokens.
+ *
+ * The file is created owner-only because it holds OAuth tokens, then takes over
+ * the permissions of `inheritFrom` — the file it is about to be renamed over —
+ * so publishing it does not change who can read that path.
  */
-async function writeFileDurable(path: string, contents: string): Promise<void> {
-  const handle = await fs.open(path, 'w')
+async function writeFileDurable(path: string, contents: string, inheritFrom: string): Promise<void> {
+  const handle = await fs.open(path, 'w', TOKEN_FILE_MODE)
   try {
     await handle.writeFile(contents, 'utf8')
+    await inheritFileOwnership(handle, inheritFrom)
     await handle.sync()
   } finally {
     await handle.close()
@@ -971,7 +1029,9 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
    * values are preserved, but key order/formatting for the file may change.
    *
    * Writes atomically and durably (fsync before rename; Windows rename-aside with
-   * restore-on-failure). Token refresh is single-flight, so this never races
+   * restore-on-failure), through a temp file that carries config.json's own
+   * permissions and is removed on every failure path so tokens are not left at
+   * rest outside the config. Token refresh is single-flight, so this never races
    * itself. Against an interleaved Homebridge Config UI X save of the same file,
    * each attempt re-reads immediately before writing (so unrelated option edits
    * are not clobbered from a stale snapshot) and re-reads after promoting to
@@ -1002,12 +1062,20 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         block.credentials.refreshToken = tokens.refreshToken
         block.credentials.accessToken = tokens.accessToken
         const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`
-        await writeFileDurable(tempPath, JSON.stringify(parsed, null, 4))
-        await this.replaceConfigFile(tempPath, configPath)
+        try {
+          await writeFileDurable(tempPath, JSON.stringify(parsed, null, 4), configPath)
+          await this.replaceConfigFile(tempPath, configPath)
 
-        if (await this.configHasTokens(configPath, tokens)) {
-          this.log.debug('Persisted refresh and access tokens to config.json')
-          return
+          if (await this.configHasTokens(configPath, tokens)) {
+            this.log.debug('Persisted refresh and access tokens to config.json')
+            return
+          }
+        } finally {
+          // A promoted temp file no longer exists, so `force` makes this a no-op
+          // on success. On any failure it removes a file holding both tokens —
+          // and since each attempt mints its own timestamped path, without this
+          // repeated failures would leave a copy behind per attempt.
+          await fs.rm(tempPath, { force: true })
         }
 
         if (attempt < TOKEN_PERSIST_MAX_ATTEMPTS) {

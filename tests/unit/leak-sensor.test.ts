@@ -19,6 +19,11 @@ interface CharRef {
 
 const mkChar = (id: string, extra: Record<string, unknown> = {}): CharRef => ({ id, ...extra })
 
+// The ranges HAP declares for these characteristics. An update outside them is
+// rejected with "characteristic was supplied illegal value" and the old value kept.
+const TEMPERATURE_RANGE = { minValue: -270, maxValue: 100 }
+const HUMIDITY_RANGE = { minValue: 0, maxValue: 100 }
+
 const Characteristic = {
   Manufacturer: mkChar('Manufacturer'),
   Model: mkChar('Model'),
@@ -28,8 +33,8 @@ const Characteristic = {
   StatusActive: mkChar('StatusActive'),
   BatteryLevel: mkChar('BatteryLevel'),
   ChargingState: mkChar('ChargingState', { NOT_CHARGEABLE: 2, NOT_CHARGING: 0, CHARGING: 1 }),
-  CurrentTemperature: mkChar('CurrentTemperature'),
-  CurrentRelativeHumidity: mkChar('CurrentRelativeHumidity'),
+  CurrentTemperature: mkChar('CurrentTemperature', { props: TEMPERATURE_RANGE }),
+  CurrentRelativeHumidity: mkChar('CurrentRelativeHumidity', { props: HUMIDITY_RANGE }),
   LeakDetected: mkChar('LeakDetected', { LEAK_DETECTED: 1, LEAK_NOT_DETECTED: 0 }),
   StatusLowBattery: mkChar('StatusLowBattery', { BATTERY_LEVEL_LOW: 1, BATTERY_LEVEL_NORMAL: 0 }),
   ContactSensorState: mkChar('ContactSensorState', { CONTACT_DETECTED: 0, CONTACT_NOT_DETECTED: 1 }),
@@ -50,6 +55,7 @@ interface MockService {
   updates: Array<{ char: CharRef, value: unknown }>
   setCharacteristic: jest.Mock
   updateCharacteristic: jest.Mock
+  getCharacteristic: jest.Mock
 }
 
 function makeService(type: string): MockService {
@@ -59,6 +65,9 @@ function makeService(type: string): MockService {
     updates,
     setCharacteristic: jest.fn(),
     updateCharacteristic: jest.fn(),
+    // Real HAP resolves the characteristic instance that carries `props`; the mock
+    // characteristics carry their own, so returning them stands in for that.
+    getCharacteristic: jest.fn((char: CharRef) => char),
   }
   svc.setCharacteristic.mockImplementation(() => svc)
   svc.updateCharacteristic.mockImplementation((char: CharRef, value: unknown) => {
@@ -298,6 +307,82 @@ describe('LeakSensorAccessory', () => {
     const { accessory } = build(baseDevice(), { deviceID: 'dev-1', enableFreezeSensor: true }, 4)
     const contact = accessory.services.get(Service.ContactSensor)
     expect(latestValue(contact, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
+  })
+})
+
+describe('LeakSensorAccessory reading range guard', () => {
+  const readings = (temperature: number, humidity: number): WaterLeakDetector =>
+    baseDevice({ currentSensorReadings: { time: 't', temperature, humidity } })
+
+  // A non-finite number is not a reading: it says nothing about the sensor and HAP
+  // cannot represent it, so it takes the same path as a missing one.
+  const nonFinite: Array<[string, number]> = [
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['-Infinity', -Infinity],
+  ]
+
+  it.each(nonFinite)('treats a temperature of %s as no reading', (_label, temperature) => {
+    const { accessory } = build(readings(temperature, 50))
+    const temp = accessory.services.get(Service.TemperatureSensor)
+
+    expect(latestValue(temp, Characteristic.CurrentTemperature)).toBeUndefined()
+    expect(latestValue(temp, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
+  })
+
+  it.each(nonFinite)('treats a humidity of %s as no reading', (_label, humidity) => {
+    const { accessory } = build(readings(20, humidity))
+    const humid = accessory.services.get(Service.HumiditySensor)
+
+    expect(latestValue(humid, Characteristic.CurrentRelativeHumidity)).toBeUndefined()
+    expect(latestValue(humid, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
+  })
+
+  it('keeps the last known reading when a later poll returns a non-finite one', () => {
+    const { accessory, handler } = build(readings(21.5, 50))
+    const temp = accessory.services.get(Service.TemperatureSensor)
+
+    handler.updateStatus(readings(NaN, 50))
+
+    expect(latestValue(temp, Characteristic.CurrentTemperature)).toBe(21.5)
+    expect(latestValue(temp, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
+  })
+
+  it('clamps a humidity above 100 to the characteristic maximum', () => {
+    const { accessory } = build(readings(20, 150))
+    const humid = accessory.services.get(Service.HumiditySensor)
+
+    expect(latestValue(humid, Characteristic.CurrentRelativeHumidity)).toBe(HUMIDITY_RANGE.maxValue)
+    // The reading is implausible but present, so it is not a sensor fault.
+    expect(latestValue(humid, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.NO_FAULT)
+  })
+
+  it('clamps a temperature below the characteristic minimum', () => {
+    const { accessory } = build(readings(-500, 50))
+    const temp = accessory.services.get(Service.TemperatureSensor)
+
+    expect(latestValue(temp, Characteristic.CurrentTemperature)).toBe(TEMPERATURE_RANGE.minValue)
+  })
+
+  it('passes an in-range reading through untouched', () => {
+    const { accessory } = build(readings(-12.5, 0))
+    const temp = accessory.services.get(Service.TemperatureSensor)
+    const humid = accessory.services.get(Service.HumiditySensor)
+
+    expect(latestValue(temp, Characteristic.CurrentTemperature)).toBe(-12.5)
+    expect(latestValue(humid, Characteristic.CurrentRelativeHumidity)).toBe(0)
+  })
+
+  it('applies the reading unclamped when the characteristic declares no bounds', () => {
+    const { accessory, handler } = build(readings(20, 50))
+    const temp = accessory.services.get(Service.TemperatureSensor)!
+    // HAP returns undefined for a characteristic the service does not carry, and a
+    // characteristic may declare no range at all; neither may cost us the reading.
+    temp.getCharacteristic.mockReturnValue(undefined)
+
+    handler.updateStatus(readings(150, 50))
+
+    expect(latestValue(temp, Characteristic.CurrentTemperature)).toBe(150)
   })
 })
 

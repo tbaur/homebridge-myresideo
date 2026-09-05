@@ -19,6 +19,18 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LeakSensorAccessory = void 0;
 const utils_1 = require("../utils");
+/**
+ * Clamp `value` into the range the characteristic itself advertises. HAP rejects
+ * an out-of-range update with "characteristic was supplied illegal value" and
+ * keeps the previous value, so an implausible reading (humidity above 100, a
+ * temperature below the sensor floor) would otherwise log on every poll and never
+ * land. The bounds are read from HAP rather than hardcoded so they track the
+ * characteristic definition; one that declares no bounds is left alone.
+ */
+function clampToCharacteristicRange(service, characteristic, value) {
+    const props = service.getCharacteristic(characteristic)?.props;
+    return Math.min(Math.max(value, props?.minValue ?? -Infinity), props?.maxValue ?? Infinity);
+}
 class LeakSensorAccessory {
     platform;
     accessory;
@@ -327,12 +339,16 @@ class LeakSensorAccessory {
      * last-known reading is still shown), and raises a general fault when the
      * reading is missing or the device is offline (and the value is therefore
      * stale) instead of presenting unreliable data as current.
+     *
+     * A non-finite value (NaN or Infinity from a malformed payload) says nothing
+     * about the sensor, so it counts as missing rather than being presented as
+     * data; a usable value is clamped to what the characteristic accepts.
      */
     applyReading(service, characteristic, value, deviceOffline) {
         const { Characteristic } = this.platform;
-        const hasReading = typeof value === 'number';
+        const hasReading = typeof value === 'number' && Number.isFinite(value);
         if (hasReading) {
-            service.updateCharacteristic(characteristic, value);
+            service.updateCharacteristic(characteristic, clampToCharacteristicRange(service, characteristic, value));
         }
         service.updateCharacteristic(Characteristic.StatusFault, !hasReading || deviceOffline
             ? Characteristic.StatusFault.GENERAL_FAULT

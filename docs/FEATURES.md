@@ -29,8 +29,8 @@ Install and a short options table: [README](../README.md). Full options, polling
 - ✅ Bounded request timeouts (including token refresh)
 - ✅ Secret redaction in logs (apikey, bearer/basic auth, access/refresh tokens, consumer secret); API errors use short status text without query strings
 - ✅ Startup config validation (fail fast with actionable messages); distinguishes a bad refresh token from rejected API credentials
-- ✅ Homebridge v1.6.0+ and v2.0+ support
-- ✅ Node.js 20+ support
+- ✅ Homebridge v2.0+ support
+- ✅ Node.js 22, 24, and 26 support
 
 ## Supported Devices
 

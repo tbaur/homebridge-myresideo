@@ -168,7 +168,9 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * values are preserved, but key order/formatting for the file may change.
      *
      * Writes atomically and durably (fsync before rename; Windows rename-aside with
-     * restore-on-failure). Token refresh is single-flight, so this never races
+     * restore-on-failure), through a temp file that carries config.json's own
+     * permissions and is removed on every failure path so tokens are not left at
+     * rest outside the config. Token refresh is single-flight, so this never races
      * itself. Against an interleaved Homebridge Config UI X save of the same file,
      * each attempt re-reads immediately before writing (so unrelated option edits
      * are not clobbered from a stale snapshot) and re-reads after promoting to
