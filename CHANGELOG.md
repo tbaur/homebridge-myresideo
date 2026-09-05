@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [2.0.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.7...v2.0.0) (2026-09-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* requires Homebridge 2.0 or newer and Node 22, 24 or 26. Homebridge 1.x and Node 20 are no longer supported.
+
+### Bug Fixes
+
+* stop token rotation widening config.json permissions ([#88](https://github.com/tbaur/homebridge-myresideo/issues/88)) ([c38621a](https://github.com/tbaur/homebridge-myresideo/commit/c38621ab5a253fd340d452692bf225b1191f57b5))
+
 ## [1.4.7](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.6...v1.4.7) (2026-08-03)
 
 
