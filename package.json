@@ -46,14 +46,14 @@
     "brace-expansion": "5.0.8"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.14",
+    "@types/jest": "^30.0.0",
     "@types/node": "^26.1.0",
     "@typescript-eslint/eslint-plugin": "^8.51.0",
     "@typescript-eslint/parser": "^8.51.0",
     "eslint": "^10.6.0",
     "globals": "^17.7.0",
     "homebridge": "^2.1.0",
-    "jest": "^29.7.0",
+    "jest": "^30.5.1",
     "nock": "^14.0.16",
     "ts-jest": "29.4.12",
     "typescript": "^6.0.3"
@@ -72,8 +72,8 @@
     "pretest": "npm run build",
     "test": "NODE_ENV=test jest --coverage",
     "test:watch": "NODE_ENV=test jest --watch",
-    "test:unit": "npm run build && NODE_ENV=test jest --coverage --testPathPattern=tests/unit",
-    "test:integration": "npm run build && NODE_ENV=test jest --testPathPattern=tests/integration --collectCoverage=false",
+    "test:unit": "npm run build && NODE_ENV=test jest --coverage --testPathPatterns=tests/unit",
+    "test:integration": "npm run build && NODE_ENV=test jest --testPathPatterns=tests/integration --collectCoverage=false",
     "lint": "eslint . --max-warnings 0 --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
     "lint:fix": "eslint . --fix --max-warnings 0 --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
   },
