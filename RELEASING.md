@@ -14,7 +14,7 @@ Releases are fully automated with [release-please](https://github.com/googleapis
    | `feat!:` / `fix!:` or a `BREAKING CHANGE:` footer | `feat!: drop Node 20` | major (0.1.0 → 1.0.0) |
    | `chore:`, `docs:`, `refactor:`, `test:`, `ci:` | `docs: fix typo` | no release |
 
-3. The **Tests** workflow runs on the PR (matrix: Node 20, 22, 24, plus a security audit). The PR is squash-merged to `main`.
+3. The **Tests** workflow runs on the PR (matrix: Node 22, 24, 26, plus a security audit). The PR is squash-merged to `main`.
 4. **release-please** opens or updates a **Release PR** titled `chore(main): release X.Y.Z`. It carries the version bump in `package.json` and the generated `CHANGELOG.md` entries. Multiple code PRs merged before a release are batched into one Release PR.
 5. Merging the Release PR triggers the `release.yml` workflow, which:
    - creates the `vX.Y.Z` git tag,

@@ -74,7 +74,7 @@ This plugin talks to a **poll-based** REST API, so its resilience focuses on mak
 - Tests compile under the same strict TypeScript settings as production (`tsconfig.test.json`).
 - Coverage threshold is 80% across statements, branches, functions, and lines for the whole `src/` tree (only barrel files and `settings.ts` are excluded).
 
-Requires **Node.js 20 or newer**, matching the `engines` range in `package.json`. CI runs this suite on Node 20, 22, and 24.
+Requires **Node.js 22, 24, or 26**, matching the `engines` range in `package.json`. CI runs this suite on Node 22, 24, and 26.
 
 ```bash
 npm install

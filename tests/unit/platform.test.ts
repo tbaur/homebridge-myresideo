@@ -15,11 +15,15 @@ const mockWriteFile = jest.fn()
 const mockRename = jest.fn()
 const mockRm = jest.fn()
 const mockOpen = jest.fn()
+const mockStat = jest.fn()
 // Handle returned by fs.open. The durable write path writes through the handle and
-// fsyncs before closing, so tokens cannot be published by rename while still cached.
+// fsyncs before closing, so tokens cannot be published by rename while still cached,
+// and chmod/chown carry the live config's permissions onto the replacement.
 const mockHandleWriteFile = jest.fn()
 const mockHandleSync = jest.fn()
 const mockHandleClose = jest.fn()
+const mockHandleChmod = jest.fn()
+const mockHandleChown = jest.fn()
 
 jest.mock('../../src/api', () => ({
   ResideoApiClient: jest.fn(),
@@ -37,6 +41,7 @@ jest.mock('node:fs', () => ({
     rename: mockRename,
     rm: mockRm,
     open: mockOpen,
+    stat: mockStat,
   },
 }))
 
@@ -115,6 +120,51 @@ function validConfig(): ResideoPlatformConfig {
 
 const flush = () => new Promise<void>(resolve => setImmediate(resolve))
 
+/**
+ * An `fs.stat` result for a config.json this process already owns, so the
+ * ownership copy is a no-op whatever uid the suite happens to run as. `mode`
+ * carries the regular-file bit, as a real stat would.
+ */
+function ownedStat(permissions: number, uid = process.getuid?.() ?? 0, gid = process.getgid?.() ?? 0) {
+  return { mode: 0o100000 | permissions, uid, gid }
+}
+
+/**
+ * The same, for a config.json owned by someone else. Derived from the current ids
+ * so the mismatch holds whether the suite runs as root or as a normal user.
+ */
+function foreignStat(permissions: number) {
+  return ownedStat(permissions, (process.getuid?.() ?? 0) + 1, (process.getgid?.() ?? 0) + 1)
+}
+
+/** A config.json carrying exactly one MyResideo platform block. */
+const SINGLE_BLOCK_CONFIG = JSON.stringify({
+  platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
+})
+
+/**
+ * Mirror durable writes into subsequent reads so the post-promote verify step
+ * sees the tokens that were just written (as a real filesystem would).
+ */
+function mirrorConfigOnDisk(initialJson: string): void {
+  let onDisk = initialJson
+  mockReadFile.mockImplementation(async () => onDisk)
+  mockHandleWriteFile.mockImplementation(async (content: string) => {
+    onDisk = content
+  })
+}
+
+/** Build a platform on the mocked filesystem and run one token rotation through it. */
+async function rotateToken(log: Logging): Promise<void> {
+  const { api } = makeApi()
+  new ResideoPlatform(log, validConfig(), api as unknown as API)
+
+  const tokenOpts = (TokenManager as unknown as jest.Mock).mock.calls[0][0] as {
+    onRefreshToken: (tokens: { refreshToken: string, accessToken: string }) => Promise<void>
+  }
+  await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
+}
+
 beforeEach(() => {
   (ResideoApiClient as unknown as jest.Mock).mockImplementation(() => ({
     getLocations: mockGetLocations,
@@ -140,11 +190,17 @@ beforeEach(() => {
   mockHandleWriteFile.mockReset().mockResolvedValue(undefined)
   mockHandleSync.mockReset().mockResolvedValue(undefined)
   mockHandleClose.mockReset().mockResolvedValue(undefined)
+  mockHandleChmod.mockReset().mockResolvedValue(undefined)
+  mockHandleChown.mockReset().mockResolvedValue(undefined)
   mockOpen.mockReset().mockResolvedValue({
     writeFile: mockHandleWriteFile,
     sync: mockHandleSync,
     close: mockHandleClose,
+    chmod: mockHandleChmod,
+    chown: mockHandleChown,
   })
+  // Homebridge ships config.json world-readable; the hardened cases set their own.
+  mockStat.mockReset().mockResolvedValue(ownedStat(0o644))
 })
 
 describe('ResideoPlatform construction', () => {
@@ -911,18 +967,6 @@ describe('boot state summary', () => {
 })
 
 describe('refresh token persistence', () => {
-  /**
-   * Mirror durable writes into subsequent reads so the post-promote verify step
-   * sees the tokens that were just written (as a real filesystem would).
-   */
-  function mirrorConfigOnDisk(initialJson: string): void {
-    let onDisk = initialJson
-    mockReadFile.mockImplementation(async () => onDisk)
-    mockHandleWriteFile.mockImplementation(async (content: string) => {
-      onDisk = content
-    })
-  }
-
   it('writes the rotated token atomically (temp file + rename)', async () => {
     mirrorConfigOnDisk(JSON.stringify({
       platforms: [{ platform: 'MyResideo', name: 'MyResideo', credentials: { refreshToken: 'old' } }],
@@ -939,7 +983,7 @@ describe('refresh token persistence', () => {
     await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
     expect(mockOpen).toHaveBeenCalledTimes(1)
-    const [tempPath] = mockOpen.mock.calls[0] as [string, string]
+    const [tempPath] = mockOpen.mock.calls[0] as [string, string, number]
     expect(tempPath).toMatch(/\.tmp$/)
     const [content] = mockHandleWriteFile.mock.calls[0] as [string, string]
     expect(content).toContain('rotated-token')
@@ -949,7 +993,8 @@ describe('refresh token persistence', () => {
     expect(mockHandleSync).toHaveBeenCalledTimes(1)
     expect(mockHandleClose).toHaveBeenCalledTimes(1)
     expect(mockRename).toHaveBeenCalledWith(tempPath, '/tmp/config.json')
-    expect(mockRm).not.toHaveBeenCalled()
+    // The rename consumed the temp file, so the unconditional cleanup is a no-op.
+    expect(mockRm).toHaveBeenCalledWith(tempPath, { force: true })
   })
 
   it('retries when a concurrent save overwrites the new tokens before they are confirmed', async () => {
@@ -1026,7 +1071,7 @@ describe('refresh token persistence', () => {
     }
     await tokenOpts.onRefreshToken({ refreshToken: 'rotated-token', accessToken: 'access-new' })
 
-    const [tempPath] = mockOpen.mock.calls[0] as [string, string]
+    const [tempPath] = mockOpen.mock.calls[0] as [string, string, number]
     // 1) temp → config (fails EEXIST), 2) config → backup, 3) temp → config
     expect(mockRename).toHaveBeenNthCalledWith(1, tempPath, '/tmp/config.json')
     expect(mockRename.mock.calls[1][0]).toBe('/tmp/config.json')
@@ -1060,7 +1105,8 @@ describe('refresh token persistence', () => {
     expect(backupPath).toMatch(/\.bak$/)
     expect(mockRename).toHaveBeenNthCalledWith(4, backupPath, '/tmp/config.json')
     expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Could not persist'))
-    expect(mockRm).not.toHaveBeenCalled()
+    // The restored backup is the live config now, so it is never removed.
+    expect(mockRm).not.toHaveBeenCalledWith(backupPath, expect.anything())
   })
 
   it('does not throw when persistence fails', async () => {
@@ -1144,6 +1190,121 @@ describe('refresh token persistence', () => {
     expect(written.platforms[0].credentials.refreshToken).toBe('old-other')
     expect(written.platforms[1].credentials.refreshToken).toBe('rotated-token')
     expect(written.platforms[1].credentials.accessToken).toBe('access-new')
+  })
+})
+
+describe('refresh token file permissions', () => {
+  beforeEach(() => {
+    mirrorConfigOnDisk(SINGLE_BLOCK_CONFIG)
+  })
+
+  it('creates the temp token file owner-only', async () => {
+    await rotateToken(makeLog())
+
+    const [, flags, mode] = mockOpen.mock.calls[0] as [string, string, number]
+    expect(flags).toBe('w')
+    expect(mode).toBe(0o600)
+    // The file holds the refresh and access tokens, so it is never group- or
+    // world-readable, not even for the moment before the rename publishes it.
+    expect(mode & 0o077).toBe(0)
+  })
+
+  it('keeps a config the user hardened to 0600 at 0600 after a rotation', async () => {
+    mockStat.mockResolvedValue(ownedStat(0o600))
+
+    await rotateToken(makeLog())
+
+    // The rename moves the temp file's inode onto config.json, so the live file
+    // ends up with the temp file's mode — it must be the mode it started with.
+    expect(mockHandleChmod).toHaveBeenCalledWith(0o600)
+    expect(mockRename).toHaveBeenCalledWith(mockOpen.mock.calls[0][0], '/tmp/config.json')
+  })
+
+  it('reapplies the live config permissions rather than forcing its own', async () => {
+    mockStat.mockResolvedValue(ownedStat(0o640))
+
+    await rotateToken(makeLog())
+
+    // A rotation is not the place to change what the user chose, in either direction.
+    expect(mockHandleChmod).toHaveBeenCalledWith(0o640)
+  })
+
+  it('leaves the temp file owner-only when the live config cannot be stat-ed', async () => {
+    mockStat.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
+
+    const log = makeLog()
+    await rotateToken(log)
+
+    expect(mockHandleChmod).not.toHaveBeenCalled()
+    expect(mockHandleChown).not.toHaveBeenCalled()
+    expect(mockOpen.mock.calls[0][2]).toBe(0o600)
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it('does not attempt to chown a config it already owns', async () => {
+    mockStat.mockResolvedValue(ownedStat(0o600))
+
+    await rotateToken(makeLog())
+
+    expect(mockHandleChown).not.toHaveBeenCalled()
+  })
+
+  it('persists the token even when the ownership copy is refused', async () => {
+    mockStat.mockResolvedValue(foreignStat(0o600))
+    mockHandleChown.mockRejectedValue(Object.assign(new Error('EPERM'), { code: 'EPERM' }))
+
+    const log = makeLog()
+    await rotateToken(log)
+
+    // A non-root process cannot hand the file to another user; the mode still
+    // carried over, and the token write must not be lost over the difference.
+    expect(mockHandleChown).toHaveBeenCalled()
+    expect(mockHandleChmod).toHaveBeenCalledWith(0o600)
+    expect(mockRename).toHaveBeenCalledWith(mockOpen.mock.calls[0][0], '/tmp/config.json')
+    expect(log.error).not.toHaveBeenCalled()
+  })
+
+  it('reports an unexpected chown failure instead of publishing the file anyway', async () => {
+    mockStat.mockResolvedValue(foreignStat(0o600))
+    mockHandleChown.mockRejectedValue(Object.assign(new Error('EIO'), { code: 'EIO' }))
+
+    const log = makeLog()
+    await rotateToken(log)
+
+    expect(mockRename).not.toHaveBeenCalled()
+    expect(mockRm).toHaveBeenCalledWith(mockOpen.mock.calls[0][0], { force: true })
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Could not persist tokens'))
+  })
+})
+
+describe('refresh token temp file cleanup', () => {
+  it('removes the temp token file when the atomic replace fails', async () => {
+    mirrorConfigOnDisk(SINGLE_BLOCK_CONFIG)
+    mockRename.mockRejectedValue(new Error('disk full'))
+
+    const log = makeLog()
+    await rotateToken(log)
+
+    // The abandoned temp file holds both tokens, so it cannot be left behind.
+    const [tempPath] = mockOpen.mock.calls[0] as [string, string, number]
+    expect(tempPath).toMatch(/\.tmp$/)
+    expect(mockRm).toHaveBeenCalledWith(tempPath, { force: true })
+    expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Could not persist tokens'))
+  })
+
+  it('leaves no temp token file behind when every attempt is clobbered', async () => {
+    // Reads always return the pre-rotation config, so no attempt can be confirmed
+    // and each one mints its own timestamped temp path.
+    mockReadFile.mockResolvedValue(SINGLE_BLOCK_CONFIG)
+
+    await rotateToken(makeLog())
+
+    const tempPaths = mockOpen.mock.calls.map(call => call[0] as string)
+    expect(tempPaths).toHaveLength(3)
+    for (const tempPath of tempPaths) {
+      expect(mockRm).toHaveBeenCalledWith(tempPath, { force: true })
+    }
+    expect(mockRm).toHaveBeenCalledTimes(tempPaths.length)
   })
 })
 
