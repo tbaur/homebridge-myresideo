@@ -72,8 +72,8 @@
     "pretest": "npm run build",
     "test": "NODE_ENV=test jest --coverage",
     "test:watch": "NODE_ENV=test jest --watch",
-    "test:unit": "npm run build && NODE_ENV=test jest --coverage --testPathPattern=tests/unit",
-    "test:integration": "npm run build && NODE_ENV=test jest --testPathPattern=tests/integration --collectCoverage=false",
+    "test:unit": "npm run build && NODE_ENV=test jest --coverage --testPathPatterns=tests/unit",
+    "test:integration": "npm run build && NODE_ENV=test jest --testPathPatterns=tests/integration --collectCoverage=false",
     "lint": "eslint . --max-warnings 0 --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
     "lint:fix": "eslint . --fix --max-warnings 0 --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
   },
