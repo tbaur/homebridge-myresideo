@@ -53,7 +53,10 @@ function resolveFreezeThreshold(device, override) {
  * we can't substantiate).
  */
 function isFreezing(temperatureC, threshold) {
-    if (typeof temperatureC !== 'number' || Number.isNaN(temperatureC)) {
+    // `Number.isFinite` rather than a NaN check alone: `-Infinity` is a number and
+    // compares below every threshold, so a malformed reading would otherwise
+    // assert a freeze this cannot substantiate.
+    if (!Number.isFinite(temperatureC)) {
         return false;
     }
     return temperatureC <= threshold;

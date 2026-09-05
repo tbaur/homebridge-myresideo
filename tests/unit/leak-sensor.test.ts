@@ -308,6 +308,24 @@ describe('LeakSensorAccessory', () => {
     const contact = accessory.services.get(Service.ContactSensor)
     expect(latestValue(contact, Characteristic.StatusFault)).toBe(Characteristic.StatusFault.GENERAL_FAULT)
   })
+
+  it.each([
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['NaN', Number.NaN],
+  ])('refuses to assert a freeze from a %s reading', (_label, temperature) => {
+    // `-Infinity` is a number and compares below every threshold, so without a
+    // finite check it reported a freeze with no fault — while the temperature
+    // service, which does check, faulted on the same reading.
+    const device = baseDevice({ currentSensorReadings: { time: 't', temperature, humidity: 40 } })
+    const { accessory } = build(device, { deviceID: 'dev-1', enableFreezeSensor: true }, 4)
+    const contact = accessory.services.get(Service.ContactSensor)
+
+    expect(latestValue(contact, Characteristic.ContactSensorState))
+      .toBe(Characteristic.ContactSensorState.CONTACT_DETECTED)
+    expect(latestValue(contact, Characteristic.StatusFault))
+      .toBe(Characteristic.StatusFault.GENERAL_FAULT)
+  })
 })
 
 describe('LeakSensorAccessory reading range guard', () => {

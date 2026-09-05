@@ -293,14 +293,17 @@ export class LeakSensorAccessory {
         : Characteristic.ContactSensorState.CONTACT_DETECTED,
     )
     // The derived freeze state is only as trustworthy as the temperature it's
-    // computed from, so fault it when the reading is missing or stale.
+    // computed from, so fault it when the reading is missing, unusable or stale.
+    // This matches what `applyReading` treats as a reading, so the freeze sensor
+    // and the temperature sensor cannot disagree about whether one exists.
+    const hasReading = Number.isFinite(temperature)
     this.freezeService.updateCharacteristic(
       Characteristic.StatusFault,
-      typeof temperature !== 'number' || offline
+      !hasReading || offline
         ? Characteristic.StatusFault.GENERAL_FAULT
         : Characteristic.StatusFault.NO_FAULT,
     )
-    return { freezing: typeof temperature === 'number' ? freezing : undefined, threshold }
+    return { freezing: hasReading ? freezing : undefined, threshold }
   }
 
   /**
