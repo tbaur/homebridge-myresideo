@@ -63,13 +63,13 @@
           "diagnosticsInterval": {
             "title": "Diagnostics Interval (seconds)",
             "type": "integer",
-            "default": 10800,
+            "default": 0,
             "minimum": 0,
             "maximum": 86400,
             "x-schema-form": {
               "type": "number"
             },
-            "description": "Emit a periodic plugin health report to the log every N seconds. Default 10800 (3 hours). Set to 0 to disable. Allowed range 0–86400 (24h); values between 1 and 29 are clamped up to 30."
+            "description": "Emit a periodic plugin health report to the log every N seconds. Default 0 (off). Allowed range 0–86400 (24h); values between 1 and 29 are clamped up to 30."
           },
           "structuredLogs": {
             "title": "Structured (JSON) Logs",

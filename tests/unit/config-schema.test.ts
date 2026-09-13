@@ -144,9 +144,9 @@ describe('config.schema.json', () => {
     expect(prop?.maximum).toBe(max)
   })
 
-  it('defaults diagnosticsInterval to 10800 (3 hours) in the settings UI', () => {
+  it('defaults diagnosticsInterval to 0 (off) in the settings UI', () => {
     const prop = schema.schema.properties.options?.properties?.diagnosticsInterval
-    expect(prop?.default).toBe(10_800)
+    expect(prop?.default).toBe(0)
   })
 
   it.each(['options.refreshRate', 'options.diagnosticsInterval'])(
