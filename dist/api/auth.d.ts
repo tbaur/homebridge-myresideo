@@ -14,7 +14,7 @@
  *   - retries transient (network/timeout/5xx/429) refresh failures with backoff;
  *   - distinguishes an invalid refresh token from rejected API credentials;
  *   - persists refresh + access tokens via {@link TokenManagerOptions.onRefreshToken}
- *     after every successful refresh (so a restart can reuse a fresh access token).
+ *     after every successful refresh (the platform writes a plugin-owned store).
  */
 import type { PluginLogger, TokenResponse } from '../types';
 /** Minimal logger surface; any subset of methods may be provided. */
@@ -23,11 +23,12 @@ export interface TokenManagerOptions {
     consumerKey: string;
     consumerSecret: string;
     refreshToken: string;
-    /** Optional starting access token (e.g. restored from config). */
+    /** Optional starting access token (e.g. restored from the plugin token store). */
     accessToken?: string;
     /**
-     * Invoked after every successful refresh so tokens can be persisted. Always
-     * includes the current refresh token (rotated or not) and the new access token.
+     * Invoked after every successful refresh so the platform can persist tokens
+     * to its own store. Always includes the current refresh token (rotated or
+     * not) and the new access token.
      */
     onRefreshToken?: (tokens: {
         refreshToken: string;

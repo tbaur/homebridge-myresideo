@@ -25,7 +25,7 @@ This plugin implements:
 
 - **HTTPS only** - All API communication uses TLS to `https://api.honeywellhome.com`
 - **OAuth2, no password storage** - The plugin never sees or stores your Resideo password; it exchanges an authorization code for access/refresh tokens
-- **Token auto-refresh and rotation** - Access tokens are refreshed before expiry and on `401`; after each successful refresh the current refresh and access tokens are persisted back to the Homebridge config
+- **Token auto-refresh and rotation** - Access tokens are refreshed before expiry and on `401`; after each successful refresh the current refresh and access tokens are written to a plugin-owned file under Homebridge storage, not rewritten into `config.json`
 - **Secret redaction in logs** - The API Key and Secret, access and refresh tokens, the `apikey` query parameter, and `Authorization` headers (both `Bearer` and `Basic`) are masked; errors are sanitized before logging
 - **Input validation** - All configuration inputs are validated at startup; invalid config fails fast with a clear message
 - **Request timeouts** - All API calls have bounded timeouts to avoid hanging the event loop
@@ -40,8 +40,8 @@ This plugin implements:
 
 ## Token & Credential Handling
 
-- The `consumerKey` (API key), `consumerSecret`, and tokens are read from the Homebridge platform config. Homebridge stores this config in plain text on the host, so host hardening is the primary mitigation.
-- Token persistence is handled automatically: after every successful refresh, the plugin writes the current refresh and access tokens back to `config.json` so the next restart uses them.
+- The `consumerKey` (API key), `consumerSecret`, and the tokens from the last Config UI save are read from the Homebridge platform config. Homebridge stores this config in plain text on the host, so host hardening is the primary mitigation.
+- Token persistence is handled automatically: after every successful refresh, the plugin writes the current refresh and access tokens to a plugin-owned file under Homebridge storage (`0600`, atomic replace). Runtime refresh never reads or rewrites `config.json`. A later Config UI re-link wins over a stale store.
 - No credentials, tokens, or personally identifying information are written to logs.
 
 ## Response Timeline

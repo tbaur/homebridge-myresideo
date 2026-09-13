@@ -8,9 +8,6 @@
  * WiFi Water Leak & Freeze Detectors.
  */
 
-import { promises as fs } from 'node:fs'
-import type { FileHandle } from 'node:fs/promises'
-
 import type {
   API,
   Characteristic as CharacteristicClass,
@@ -21,6 +18,7 @@ import type {
 } from 'homebridge'
 
 import { ResideoApiClient, TokenManager } from './api'
+import { TokenStore } from './api/token-store'
 import { LeakSensorAccessory } from './devices/leak-sensor'
 import { DiagnosticsCollector } from './diagnostics/collector'
 import type { DiagnosticsReaders } from './diagnostics/collector'
@@ -91,87 +89,22 @@ function readPluginVersion(): string {
 
 const PLUGIN_VERSION = readPluginVersion()
 
-/** How many times to rewrite config.json if a concurrent save clobbers the new tokens. */
-const TOKEN_PERSIST_MAX_ATTEMPTS = 3
-
-/** Owner-only mode for a temp file that holds the OAuth refresh and access tokens. */
-const TOKEN_FILE_MODE = 0o600
-
 /** Clamp a configured interval into the range a timer can represent safely. */
 function clampSeconds(seconds: number, min: number, max: number): number {
   return Math.min(Math.max(seconds, min), max)
 }
 
-/**
- * Give the handle `uid`/`gid` when this process is allowed to.
- *
- * Only attempted when ownership actually differs — Homebridge normally runs as
- * the owner of its own config, so this is usually a no-op — and a refusal is
- * ignored: a non-root process cannot hand a file to another user, and losing a
- * rotated token over an ownership mismatch would cost the user their account link.
- */
-async function chownIfPermitted(handle: FileHandle, uid: number, gid: number): Promise<void> {
-  // Windows has no real uid/gid and does not implement getuid, so there is
-  // nothing to copy.
-  if (process.getuid === undefined || process.getgid === undefined) {
-    return
-  }
-  if (process.getuid() === uid && process.getgid() === gid) {
-    return
-  }
+/** Homebridge storage directory, or undefined when persist must stay disabled. */
+function readStorageDir(api: API): string | undefined {
   try {
-    await handle.chown(uid, gid)
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code
-    if (code !== 'EPERM' && code !== 'EACCES') {
-      throw err
+    const dir = api.user.storagePath?.()
+    if (typeof dir === 'string' && dir.length > 0) {
+      return dir
     }
+  } catch {
+    // Persist stays off rather than guessing a world-writable fallback.
   }
-}
-
-/**
- * Copy `source`'s permissions — and its owner, where permitted — onto an open handle.
- *
- * The rename that publishes a temp file replaces the destination's inode, so the
- * live file ends up with whatever the temp file carried. Without this, a user who
- * ran `chmod 600 config.json` would silently have it widened to the default 0644
- * on the first token rotation, exposing every plugin's credentials in that file
- * and not just this one's. Copying the original mode (rather than forcing 0600)
- * keeps a token rotation from changing who can read the file in either direction.
- * When `source` cannot be stat'd there is nothing to match, and the handle keeps
- * the owner-only mode it was created with.
- */
-async function inheritFileOwnership(handle: FileHandle, source: string): Promise<void> {
-  const original = await fs.stat(source).catch(() => undefined)
-  if (original === undefined) {
-    return
-  }
-  // `mode` carries the file-type bits too; chmod only accepts permission bits.
-  await handle.chmod(original.mode & 0o7777)
-  await chownIfPermitted(handle, original.uid, original.gid)
-}
-
-/**
- * Write `contents` to `path` and flush it to disk before returning.
- *
- * `fs.writeFile` closes its handle without an fsync, so the data may still be in
- * the page cache when the follow-up rename publishes the file. A crash in that
- * window would leave a truncated config — and since the whole file is rewritten,
- * that costs the user every platform's settings, not just these tokens.
- *
- * The file is created owner-only because it holds OAuth tokens, then takes over
- * the permissions of `inheritFrom` — the file it is about to be renamed over —
- * so publishing it does not change who can read that path.
- */
-async function writeFileDurable(path: string, contents: string, inheritFrom: string): Promise<void> {
-  const handle = await fs.open(path, 'w', TOKEN_FILE_MODE)
-  try {
-    await handle.writeFile(contents, 'utf8')
-    await inheritFileOwnership(handle, inheritFrom)
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
+  return undefined
 }
 
 export default class ResideoPlatform implements DynamicPlatformPlugin {
@@ -192,6 +125,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
   private readonly pendingRemovalCounts = new Map<string, number>()
 
   private tokenManager?: TokenManager
+  private tokenStore?: TokenStore
   private client?: ResideoApiClient
   private pollTimer?: ReturnType<typeof setInterval>
   private discoveryTimer?: ReturnType<typeof setTimeout>
@@ -244,13 +178,22 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     // to the log unless options.diagnosticsInterval > 0.
     this.diagnostics = new DiagnosticsCollector({ pluginVersion: PLUGIN_VERSION, config })
 
+    this.tokenStore = new TokenStore({
+      storageDir: readStorageDir(this.api),
+      instanceName: config.name,
+      consumerKey: config.credentials.consumerKey,
+      sourceRefreshToken: config.credentials.refreshToken,
+      logger: this.log,
+    })
+    const stored = this.tokenStore.load()
+
     this.tokenManager = new TokenManager({
       consumerKey: config.credentials.consumerKey,
       consumerSecret: config.credentials.consumerSecret,
-      refreshToken: config.credentials.refreshToken,
-      accessToken: config.credentials.accessToken,
+      refreshToken: stored?.refreshToken ?? config.credentials.refreshToken,
+      accessToken: stored?.accessToken || config.credentials.accessToken,
       logger: this.log,
-      onRefreshToken: tokens => this.persistTokens(tokens),
+      onRefreshToken: tokens => this.tokenStore?.save(tokens),
       onRefreshSuccess: () => {
         this.lastRefreshFailureAt = null
         this.diagnostics?.tokenRefresh()
@@ -1022,164 +965,4 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     }
   }
 
-  /**
-   * Persist the current refresh + access tokens back into config.json so they
-   * survive a Homebridge restart. Rewrites the whole config file as pretty-printed
-   * JSON (4-space indent) for the matching platform block — other platforms'
-   * values are preserved, but key order/formatting for the file may change.
-   *
-   * Writes atomically and durably (fsync before rename; Windows rename-aside with
-   * restore-on-failure), through a temp file that carries config.json's own
-   * permissions and is removed on every failure path so tokens are not left at
-   * rest outside the config. Token refresh is single-flight, so this never races
-   * itself. Against an interleaved Homebridge Config UI X save of the same file,
-   * each attempt re-reads immediately before writing (so unrelated option edits
-   * are not clobbered from a stale snapshot) and re-reads after promoting to
-   * confirm the tokens landed; if Config UI X overwrote them, the write is
-   * retried a few times.
-   *
-   * A failure here is serious — tokens may only be in memory — so it is logged at
-   * error with that consequence spelled out, but never thrown (refresh succeeded).
-   */
-  private async persistTokens(tokens: { refreshToken: string, accessToken: string }): Promise<void> {
-    this.config.credentials.refreshToken = tokens.refreshToken
-    this.config.credentials.accessToken = tokens.accessToken
-    const configPath = this.api.user.configPath()
-
-    try {
-      for (let attempt = 1; attempt <= TOKEN_PERSIST_MAX_ATTEMPTS; attempt++) {
-        const raw = await fs.readFile(configPath, 'utf8')
-        const parsed = JSON.parse(raw) as { platforms?: ResideoPlatformConfig[] }
-        const blocks = parsed.platforms?.filter(p => p.platform === PLATFORM_NAME) ?? []
-        const block = this.selectConfigBlock(blocks)
-        if (!block?.credentials) {
-          this.log.error(
-            'Could not persist tokens: this platform block was not found in config.json. '
-            + 'A future Homebridge restart may require re-linking your account.',
-          )
-          return
-        }
-        block.credentials.refreshToken = tokens.refreshToken
-        block.credentials.accessToken = tokens.accessToken
-        const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`
-        try {
-          await writeFileDurable(tempPath, JSON.stringify(parsed, null, 4), configPath)
-          await this.replaceConfigFile(tempPath, configPath)
-
-          if (await this.configHasTokens(configPath, tokens)) {
-            this.log.debug('Persisted refresh and access tokens to config.json')
-            return
-          }
-        } finally {
-          // A promoted temp file no longer exists, so `force` makes this a no-op
-          // on success. On any failure it removes a file holding both tokens —
-          // and since each attempt mints its own timestamped path, without this
-          // repeated failures would leave a copy behind per attempt.
-          await fs.rm(tempPath, { force: true })
-        }
-
-        if (attempt < TOKEN_PERSIST_MAX_ATTEMPTS) {
-          this.log.warn(
-            'Token persist was overwritten before it could be confirmed; retrying '
-            + `(attempt ${attempt}/${TOKEN_PERSIST_MAX_ATTEMPTS})`,
-          )
-        }
-      }
-
-      this.log.error(
-        'Could not persist tokens: config.json did not retain the new tokens after '
-        + `${TOKEN_PERSIST_MAX_ATTEMPTS} attempts. `
-        + 'A future Homebridge restart may require re-linking your account.',
-      )
-    } catch (err) {
-      this.log.error(
-        `Could not persist tokens: ${sanitizeError(err)}. `
-        + 'A future Homebridge restart may require re-linking your account.',
-      )
-    }
-  }
-
-  /**
-   * True when `configPath` currently stores exactly the given tokens on this
-   * platform block. Used to detect a lost race against Config UI X saving over
-   * the just-promoted file.
-   */
-  private async configHasTokens(
-    configPath: string,
-    tokens: { refreshToken: string, accessToken: string },
-  ): Promise<boolean> {
-    try {
-      const raw = await fs.readFile(configPath, 'utf8')
-      const parsed = JSON.parse(raw) as { platforms?: ResideoPlatformConfig[] }
-      const blocks = parsed.platforms?.filter(p => p.platform === PLATFORM_NAME) ?? []
-      const block = this.selectConfigBlock(blocks)
-      return block?.credentials?.refreshToken === tokens.refreshToken
-        && block?.credentials?.accessToken === tokens.accessToken
-    } catch {
-      return false
-    }
-  }
-
-  /**
-   * Replace `configPath` with the contents already written to `tempPath`.
-   * Prefer a direct rename (atomic on POSIX). When the platform refuses to
-   * overwrite (typical on Windows), move the live file aside, promote the
-   * temp file, and restore the backup if promotion fails — never `unlink` the
-   * live config before the new file is durable.
-   */
-  private async replaceConfigFile(tempPath: string, configPath: string): Promise<void> {
-    try {
-      await fs.rename(tempPath, configPath)
-      return
-    } catch (renameErr) {
-      const code = (renameErr as NodeJS.ErrnoException).code
-      if (code !== 'EEXIST' && code !== 'EPERM' && code !== 'EACCES') {
-        throw renameErr
-      }
-    }
-
-    const backupPath = `${configPath}.${process.pid}.${Date.now()}.bak`
-    await fs.rename(configPath, backupPath)
-    try {
-      await fs.rename(tempPath, configPath)
-    } catch (promoteErr) {
-      try {
-        await fs.rename(backupPath, configPath)
-      } catch (restoreErr) {
-        throw new Error(
-          `Failed to promote new config and restore backup: ${sanitizeError(promoteErr)}; `
-          + `restore: ${sanitizeError(restoreErr)}`,
-        )
-      }
-      throw promoteErr
-    }
-    await fs.rm(backupPath, { force: true })
-  }
-
-  /**
-   * Choose which platform block to write the rotated token into. With a single
-   * block the choice is unambiguous; with several, only a unique name match is
-   * safe. Refuse to guess when names collide or none match this instance.
-   */
-  private selectConfigBlock(blocks: ResideoPlatformConfig[]): ResideoPlatformConfig | undefined {
-    if (blocks.length <= 1) {
-      return blocks[0]
-    }
-    const named = blocks.filter(p => p.name === this.config.name)
-    if (named.length === 1) {
-      return named[0]
-    }
-    if (named.length === 0) {
-      this.log.error(
-        'Could not persist tokens: no MyResideo platform block matches this '
-        + `instance name ("${this.config.name ?? ''}"). Ensure the "name" in config.json matches.`,
-      )
-      return undefined
-    }
-    this.log.error(
-      'Multiple MyResideo platform blocks share the same name; cannot safely persist tokens. '
-      + 'Give each platform block a unique "name" in config.json.',
-    )
-    return undefined
-  }
 }

@@ -8,7 +8,7 @@ User-facing install and options: [README.md](README.md). Full options, polling, 
 src/
   index.ts            Entry point; registers the dynamic platform.
   settings.ts         Constants + API endpoints (api.honeywellhome.com).
-  platform.ts         Discovery, accessory lifecycle, polling, token persistence.
+  platform.ts         Discovery, accessory lifecycle, polling.
   types/              Plugin config + Honeywell API types.
   errors/             Structured, typed error hierarchy with retry hints.
   api/
@@ -18,6 +18,7 @@ src/
     client.ts         HTTP client (apikey + bearer, timeout, retry, 401 handling,
                       circuit breaker).
     circuit-breaker.ts  Fail-fast protection for sustained Resideo API outages.
+    token-store.ts    Plugin-owned file for rotated OAuth tokens (not config.json).
     index.ts          Barrel exports.
   devices/
     leak-sensor.ts    HomeKit accessory: leak/temp/humidity/battery/freeze.
@@ -56,7 +57,7 @@ scripts/
 
 This plugin talks to a **poll-based** REST API, so its resilience focuses on making each polling cycle robust:
 
-- **Token lifecycle** — a config-supplied access token is used optimistically once, then access tokens refresh ahead of expiry and on `401`; concurrent refreshes are de-duplicated (single-flight); after every successful refresh the current refresh + access tokens are persisted back to `config.json` atomically (temp file + rename; on Windows rename-aside with restore-on-failure; pretty-printed whole-file rewrite).
+- **Token lifecycle** — a config-supplied access token is used optimistically once, then access tokens refresh ahead of expiry and on `401`; concurrent refreshes are de-duplicated (single-flight); after every successful refresh the current refresh + access tokens are persisted to a plugin-owned file under Homebridge storage (temp file + fsync + rename; on Windows rename-aside with restore-on-failure). Runtime refresh never rewrites `config.json`.
 - **Transient-error retry** — API calls and token refresh retry network errors, timeouts, `5xx`, and `429` with jittered exponential backoff; both honor a `429` `Retry-After` header when present. `401` on an API call triggers one refresh-and-retry (including when the 401 arrives on the final attempt budget); `403` (`ForbiddenError`) and other non-retryable `4xx` do not retry.
 - **Circuit breaker** — after a threshold of service-health failures (5xx/network/timeout/parse), the breaker opens and subsequent requests fail fast until a cooldown elapses; a single half-open probe decides whether to close again (avoids races with concurrent device polls). Transitions log at warn (OPEN) / info (HALF_OPEN probe and CLOSED recovery). Per-device transient poll misses stay at debug; auth/re-link failures still log once per poll cycle at error.
 - **Poll freshness bound** — detectors typically upload to the cloud only 1–3×/day (`lastCheckin`); `refreshRate` bounds how often the plugin asks Resideo for the latest cloud snapshot, not how often the physical device reports.
@@ -69,7 +70,7 @@ This plugin talks to a **poll-based** REST API, so its resilience focuses on mak
 
 ## Testing
 
-- Unit tests live in `tests/unit/` and inject fakes (no real network). The platform and the leak-sensor accessory are unit-tested with a mocked Homebridge/HAP surface; `node:fs` is mocked for the config-persistence path.
+- Unit tests live in `tests/unit/` and inject fakes (no real network). The platform and the leak-sensor accessory are unit-tested with a mocked Homebridge/HAP surface; `node:fs` is mocked for the plugin token store.
 - Integration tests live in `tests/integration/` and use `nock` to exercise the native `https` transport and token requester.
 - Tests compile under the same strict TypeScript settings as production (`tsconfig.test.json`).
 - Coverage threshold is 80% across statements, branches, functions, and lines for the whole `src/` tree (only barrel files and `settings.ts` are excluded).
