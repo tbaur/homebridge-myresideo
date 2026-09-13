@@ -96,7 +96,7 @@ Detectors appear in the Home app after startup discovery. Restart Homebridge aft
 | `credentials.accessToken` | | OAuth2 access token (set when linking) |
 | `options.refreshRate` | | Seconds between status polls (default 120, min 30, max 86400) |
 | `options.freezeThresholdCelsius` | | Default freeze threshold in °C (−40 to 40). Unset uses the device's own limit |
-| `options.diagnosticsInterval` | | Seconds between health-report log lines (default 10800). `0` disables |
+| `options.diagnosticsInterval` | | Seconds between health-report log lines (default 0, off) |
 | `options.structuredLogs` | | With diagnostics, also emit a JSON line (default false) |
 | `options.devices[]` | | Per-device overrides, keyed by `deviceID` |
 

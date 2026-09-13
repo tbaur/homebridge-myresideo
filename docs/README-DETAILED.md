@@ -29,7 +29,7 @@ Install and a short options table live in the [README](../README.md). This page 
       "options": {
         "refreshRate": 120,
         "freezeThresholdCelsius": 4,
-        "diagnosticsInterval": 10800,
+        "diagnosticsInterval": 0,
         "structuredLogs": false,
         "devices": [
           {
@@ -58,7 +58,7 @@ Install and a short options table live in the [README](../README.md). This page 
 | `credentials.accessToken` | | OAuth2 access token (set when linking your account) |
 | `options.refreshRate` | | Seconds between status polls. Default 120, minimum 30, maximum 86400. Out-of-range values are clamped. A non-numeric value falls back to the default. |
 | `options.freezeThresholdCelsius` | | Default freeze threshold in °C, between −40 and 40 (values outside that range are ignored). Leave unset to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence. |
-| `options.diagnosticsInterval` | | Seconds between health-report log lines. Default 10800 (3 hours). `0` disables. Values 1–29 are clamped up to 30. Maximum is 86400 (24h). |
+| `options.diagnosticsInterval` | | Seconds between health-report log lines. Default 0 (off). Values 1–29 are clamped up to 30. Maximum is 86400 (24h). |
 | `options.structuredLogs` | | When diagnostics are enabled, also emit a machine-readable JSON line next to the human summary. Default false. |
 | `options.devices[]` | | Per-device overrides (see below) |
 
@@ -109,7 +109,7 @@ Sustained API failures open a circuit breaker so polling fails fast. OPEN is log
 
 ## Diagnostics
 
-`diagnosticsInterval` defaults to 10800 (3 hours). `0` disables it.
+`diagnosticsInterval` defaults to 0 (off). Set it to a number of seconds to emit a periodic health report. Values 1–29 are clamped up to 30.
 
 Each report includes device online count, REST transport state (`live` / `connecting` / `stopped` / `auth-failed`), and API latency (p50/p95 with request/error counts), with a `healthy`/`degraded` rollup.
 
