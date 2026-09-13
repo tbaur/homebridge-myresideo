@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [2.0.1](https://github.com/tbaur/homebridge-myresideo/compare/v2.0.0...v2.0.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* persist rotated tokens outside config.json ([#95](https://github.com/tbaur/homebridge-myresideo/issues/95)) ([990c7d3](https://github.com/tbaur/homebridge-myresideo/commit/990c7d35e6715e18144118c8dc352eb2213006e1))
+
 ## [2.0.0](https://github.com/tbaur/homebridge-myresideo/compare/v1.4.7...v2.0.0) (2026-09-05)
 
 
