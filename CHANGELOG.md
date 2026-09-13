@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [2.0.2](https://github.com/tbaur/homebridge-myresideo/compare/v2.0.1...v2.0.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* default diagnostics interval to off in the settings schema ([#97](https://github.com/tbaur/homebridge-myresideo/issues/97)) ([0b43390](https://github.com/tbaur/homebridge-myresideo/commit/0b433903291262aa9f40fc82b8b1dc626a478b88))
+
 ## [2.0.1](https://github.com/tbaur/homebridge-myresideo/compare/v2.0.0...v2.0.1) (2026-09-13)
 
 
