@@ -8,7 +8,8 @@
  * `credentials` object and config-ui-x reconstructs/validates the saved config
  * from this schema, so any credential field the schema fails to declare is
  * stripped on save — which previously prevented the refresh token from ever
- * persisting to config.json. These tests fail fast if that contract regresses.
+ * persisting the initial account link to config.json. These tests fail fast if
+ * that contract regresses.
  */
 
 import { readFileSync } from 'node:fs'

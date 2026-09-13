@@ -11,12 +11,12 @@ This document summarizes the plugin's security, reliability, maintainability, an
 | **Credential Handling** | ✅ | OAuth2 only; the plugin never sees the user's Resideo password |
 | **OAuth `state`** | ✅ | Account-linking UI and `get-tokens` send an opaque CSPRNG `state` on authorize; the UI server retains `state` in memory (never `sessionStorage`) and verifies it on `/exchange-code` (no fail-open); mismatched redirects are rejected |
 | **Secret Redaction** | ✅ | `sanitizeError()` / `sanitizeString()` redact `apikey`, `Authorization`, bearer/basic credentials, access/refresh tokens, and the consumer/client secret; no credentials or tokens (including masked fragments) are written to logs; token-endpoint response bodies are never logged |
-| **Token Persistence** | ✅ | Refresh + access tokens persisted to `config.json` after every successful refresh (atomic replace; Windows rename-aside with restore-on-failure) |
+| **Token Persistence** | ✅ | Refresh + access tokens persisted to a plugin-owned file under Homebridge storage after every successful refresh (atomic replace; Windows rename-aside with restore-on-failure). Runtime refresh does not read or rewrite `config.json` |
 | **Input Validation** | ✅ | `validateConfig()` runs at startup; fatal errors stop the plugin with an actionable message |
 | **HTTPS Only** | ✅ | All API calls to `https://api.honeywellhome.com` |
 | **npm Audit / CI** | ✅ | Audit job runs in CI on every push and PR |
 
-**Residual risk:** Homebridge stores the config (API key/secret/tokens) in plain text on the host (documented; mitigated via host hardening).
+**Residual risk:** Homebridge stores the config (API key/secret and the tokens from the last Config UI save) in plain text; rotated tokens live in a plugin-owned file under Homebridge storage. Host hardening is the primary mitigation.
 
 ---
 
@@ -33,7 +33,7 @@ This document summarizes the plugin's security, reliability, maintainability, an
 | **Discovery Resilience** | ✅ | Self-healing retry with capped exponential backoff (15s → 5min) on transient errors; non-recoverable auth/config errors are not retried |
 | **Accessory Lifecycle** | ✅ | Detectors are unregistered only after repeated non-empty discoveries confirm they are gone and the platform is stable; per-device poll failures are isolated |
 | **Stale-Data Safety** | ✅ | Missing/stale temperature/humidity/battery and an offline device or active alarm raise `StatusFault`; absent battery is never asserted as a misleading 100% default |
-| **Config Persistence** | ✅ | Refresh + access tokens written atomically (temp file + rename; Windows rename-aside with restore-on-failure) to the matching platform block after every successful refresh; rewrites `config.json` as pretty-printed JSON |
+| **Token store** | ✅ | Refresh + access tokens written atomically (temp file + fsync + rename; Windows rename-aside with restore-on-failure) to a per-instance file under Homebridge storage; `config.json` is left untouched at runtime |
 
 ---
 
@@ -43,7 +43,7 @@ This document summarizes the plugin's security, reliability, maintainability, an
 |------|--------|-------|
 | **TypeScript** | ✅ | Strict mode; production and tests compile under the same strict settings (`tsconfig.test.json`); HAP types from the `homebridge` dev dependency |
 | **Test Coverage** | ✅ | Unit + integration suites with a ≥80% coverage gate across `src/`, including the platform and accessory layers (mocked HAP surface) |
-| **Code Organization** | ✅ | `api/` (client, auth, circuit-breaker), `devices/`, `utils/` (mappers/sanitizers/validators/backoff), `errors/`, `types/` |
+| **Code Organization** | ✅ | `api/` (client, auth, circuit-breaker, token-store), `devices/`, `utils/` (mappers/sanitizers/validators/backoff), `errors/`, `types/` |
 | **Dependencies** | ✅ | Plugin core has zero runtime dependencies (native `https`); the lone runtime dependency, `@homebridge/plugin-ui-utils`, is itself dependency-free and used only by the optional account-linking UI |
 | **Lint** | ✅ | ESLint flat config, 0 errors |
 

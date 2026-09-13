@@ -20,7 +20,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Optional freeze contact sensor** when temperature drops to or below a threshold
 
 ### Reliability
-- **OAuth2 tokens refresh before they expire**, and are written back to `config.json` after every successful refresh
+- **OAuth2 tokens refresh before they expire**, and rotated tokens are written to a plugin-owned file under Homebridge storage (not `config.json`)
 - **Retries** for transient network, timeout, 5xx, and 429 errors
 - **Circuit breaker** during a sustained Resideo outage, so polling fails fast
 - **Keeps cached detectors** if the cloud returns an empty or partial list
@@ -113,7 +113,7 @@ The [full troubleshooting list](docs/README-DETAILED.md#troubleshooting) covers 
 
 ## Security
 
-This plugin stores OAuth tokens (not your account password) in Homebridge's plaintext `config.json`. Anyone who can read files on the host can read those tokens. Redact `credentials` before posting logs or backups.
+Account linking saves OAuth tokens (not your account password) in Homebridge's plaintext `config.json`. After that, rotated tokens live in a plugin-owned file under Homebridge storage. Anyone who can read files on the host can read those tokens. Redact `credentials` before posting logs or backups.
 
 The plugin talks to Resideo over TLS only and redacts every credential from its logs. See [SECURITY.md](SECURITY.md).
 

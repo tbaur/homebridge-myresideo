@@ -103,7 +103,7 @@ If Resideo returns an empty or partial device list during a cloud outage, the pl
 
 Restart Homebridge to pick up a detector you just added to the Honeywell Home account.
 
-Tokens refresh before they expire. After every successful refresh, the current refresh and access tokens are written back to `config.json`. Concurrent calls share one token refresh.
+Tokens refresh before they expire. After every successful refresh, the current refresh and access tokens are written to a plugin-owned file under Homebridge storage. Concurrent calls share one token refresh. Runtime refresh does not rewrite `config.json`.
 
 Sustained API failures open a circuit breaker so polling fails fast. OPEN is logged at warn; HALF_OPEN probes and CLOSED recovery at info.
 

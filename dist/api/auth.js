@@ -15,7 +15,7 @@
  *   - retries transient (network/timeout/5xx/429) refresh failures with backoff;
  *   - distinguishes an invalid refresh token from rejected API credentials;
  *   - persists refresh + access tokens via {@link TokenManagerOptions.onRefreshToken}
- *     after every successful refresh (so a restart can reuse a fresh access token).
+ *     after every successful refresh (the platform writes a plugin-owned store).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TokenManager = void 0;

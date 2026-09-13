@@ -27,6 +27,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      */
     private readonly pendingRemovalCounts;
     private tokenManager?;
+    private tokenStore?;
     private client?;
     private pollTimer?;
     private discoveryTimer?;
@@ -161,45 +162,5 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * line when options.structuredLogs is enabled. The report is already redacted.
      */
     private emitDiagnostic;
-    /**
-     * Persist the current refresh + access tokens back into config.json so they
-     * survive a Homebridge restart. Rewrites the whole config file as pretty-printed
-     * JSON (4-space indent) for the matching platform block — other platforms'
-     * values are preserved, but key order/formatting for the file may change.
-     *
-     * Writes atomically and durably (fsync before rename; Windows rename-aside with
-     * restore-on-failure), through a temp file that carries config.json's own
-     * permissions and is removed on every failure path so tokens are not left at
-     * rest outside the config. Token refresh is single-flight, so this never races
-     * itself. Against an interleaved Homebridge Config UI X save of the same file,
-     * each attempt re-reads immediately before writing (so unrelated option edits
-     * are not clobbered from a stale snapshot) and re-reads after promoting to
-     * confirm the tokens landed; if Config UI X overwrote them, the write is
-     * retried a few times.
-     *
-     * A failure here is serious — tokens may only be in memory — so it is logged at
-     * error with that consequence spelled out, but never thrown (refresh succeeded).
-     */
-    private persistTokens;
-    /**
-     * True when `configPath` currently stores exactly the given tokens on this
-     * platform block. Used to detect a lost race against Config UI X saving over
-     * the just-promoted file.
-     */
-    private configHasTokens;
-    /**
-     * Replace `configPath` with the contents already written to `tempPath`.
-     * Prefer a direct rename (atomic on POSIX). When the platform refuses to
-     * overwrite (typical on Windows), move the live file aside, promote the
-     * temp file, and restore the backup if promotion fails — never `unlink` the
-     * live config before the new file is durable.
-     */
-    private replaceConfigFile;
-    /**
-     * Choose which platform block to write the rotated token into. With a single
-     * block the choice is unambiguous; with several, only a unique name match is
-     * safe. Refuse to guess when names collide or none match this instance.
-     */
-    private selectConfigBlock;
 }
 //# sourceMappingURL=platform.d.ts.map

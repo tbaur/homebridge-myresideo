@@ -28,8 +28,10 @@ export interface ResideoCredentials {
     consumerKey: string;
     consumerSecret: string;
     /**
-     * Optional starting access token. Its true expiry is unknown to the plugin,
-     * so it is used optimistically once and then refreshed from `refreshToken`.
+     * Optional starting access token from the last Config UI save. Rotated
+     * tokens live in the plugin token store; this field is used when that
+     * store is missing. Its true expiry is unknown, so it is used once and
+     * then refreshed from `refreshToken`.
      */
     accessToken?: string;
     refreshToken: string;

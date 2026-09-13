@@ -8,7 +8,7 @@
  * @fileoverview API module exports.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_CIRCUIT_BREAKER_CONFIG = exports.CircuitState = exports.CircuitBreaker = exports.ResideoApiClient = exports.generateOAuthState = exports.extractAuthorizationCode = exports.exchangeAuthorizationCode = exports.buildAuthorizeUrl = exports.TokenManager = void 0;
+exports.DEFAULT_CIRCUIT_BREAKER_CONFIG = exports.CircuitState = exports.CircuitBreaker = exports.tokenStoreFileName = exports.sanitizeInstanceName = exports.resolveTokenStorePath = exports.TokenStore = exports.TOKEN_STORE_VERSION = exports.TOKEN_STORE_FILE_PREFIX = exports.TOKEN_FILE_MODE = exports.ResideoApiClient = exports.generateOAuthState = exports.extractAuthorizationCode = exports.exchangeAuthorizationCode = exports.buildAuthorizeUrl = exports.TokenManager = void 0;
 var auth_1 = require("./auth");
 Object.defineProperty(exports, "TokenManager", { enumerable: true, get: function () { return auth_1.TokenManager; } });
 Object.defineProperty(exports, "buildAuthorizeUrl", { enumerable: true, get: function () { return auth_1.buildAuthorizeUrl; } });
@@ -17,6 +17,14 @@ Object.defineProperty(exports, "extractAuthorizationCode", { enumerable: true, g
 Object.defineProperty(exports, "generateOAuthState", { enumerable: true, get: function () { return auth_1.generateOAuthState; } });
 var client_1 = require("./client");
 Object.defineProperty(exports, "ResideoApiClient", { enumerable: true, get: function () { return client_1.ResideoApiClient; } });
+var token_store_1 = require("./token-store");
+Object.defineProperty(exports, "TOKEN_FILE_MODE", { enumerable: true, get: function () { return token_store_1.TOKEN_FILE_MODE; } });
+Object.defineProperty(exports, "TOKEN_STORE_FILE_PREFIX", { enumerable: true, get: function () { return token_store_1.TOKEN_STORE_FILE_PREFIX; } });
+Object.defineProperty(exports, "TOKEN_STORE_VERSION", { enumerable: true, get: function () { return token_store_1.TOKEN_STORE_VERSION; } });
+Object.defineProperty(exports, "TokenStore", { enumerable: true, get: function () { return token_store_1.TokenStore; } });
+Object.defineProperty(exports, "resolveTokenStorePath", { enumerable: true, get: function () { return token_store_1.resolveTokenStorePath; } });
+Object.defineProperty(exports, "sanitizeInstanceName", { enumerable: true, get: function () { return token_store_1.sanitizeInstanceName; } });
+Object.defineProperty(exports, "tokenStoreFileName", { enumerable: true, get: function () { return token_store_1.tokenStoreFileName; } });
 var circuit_breaker_1 = require("./circuit-breaker");
 Object.defineProperty(exports, "CircuitBreaker", { enumerable: true, get: function () { return circuit_breaker_1.CircuitBreaker; } });
 Object.defineProperty(exports, "CircuitState", { enumerable: true, get: function () { return circuit_breaker_1.CircuitState; } });
