@@ -55,7 +55,7 @@ scripts/
 
 ## Reliability & performance
 
-This plugin talks to a **poll-based** REST API, so its resilience focuses on making each polling cycle robust:
+This plugin talks to a **poll-based** REST API, so it focuses on making each polling cycle keep working when calls fail:
 
 - **Token lifecycle** — a config-supplied access token is used optimistically once, then access tokens refresh ahead of expiry and on `401`; concurrent refreshes are de-duplicated (single-flight); after every successful refresh the current refresh + access tokens are persisted to a plugin-owned file under Homebridge storage (temp file + fsync + rename; on Windows rename-aside with restore-on-failure). Runtime refresh never rewrites `config.json`.
 - **Transient-error retry** — API calls and token refresh retry network errors, timeouts, `5xx`, and `429` with jittered exponential backoff; both honor a `429` `Retry-After` header when present. `401` on an API call triggers one refresh-and-retry (including when the 401 arrives on the final attempt budget); `403` (`ForbiddenError`) and other non-retryable `4xx` do not retry.

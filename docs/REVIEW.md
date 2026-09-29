@@ -1,6 +1,6 @@
 # Security, Reliability, Maintainability & Serviceability Review
 
-This document summarizes the plugin's security, reliability, maintainability, and serviceability posture and the practices that uphold it. The Resideo / Honeywell Home API for leak detectors is **poll-only**, so the design centers on resilient polling, robust OAuth2 token handling, and careful failure isolation.
+This document summarizes how secure, reliable, maintainable, and serviceable the plugin is, and what practices support that. The Resideo / Honeywell Home API for leak detectors is **poll-only**, so the plugin focuses on resilient polling, OAuth2 token handling that keeps working through expiry and refresh, and careful failure isolation.
 
 ---
 
