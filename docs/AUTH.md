@@ -51,7 +51,7 @@ The redirect URI must point at `localhost` or `127.0.0.1` so the script can rece
 
 ## How the plugin manages tokens
 
-Resideo issues short-lived access tokens (~30 minutes) alongside a rotating refresh token. The `TokenManager` (`src/api/auth.ts`) keeps authentication robust without manual intervention:
+Resideo issues short-lived access tokens (~30 minutes) alongside a rotating refresh token. The `TokenManager` (`src/api/auth.ts`) refreshes and rotates tokens so you do not have to re-link by hand:
 
 - **Optimistic startup** — a config-supplied `accessToken` (whose true expiry is unknown) is used once, then the plugin refreshes from the `refreshToken`. The `accessToken` is therefore optional.
 - **Proactive refresh** — refreshes one minute before `expires_in` elapses, so an in-flight poll never races an expiry.
