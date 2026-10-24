@@ -133,6 +133,10 @@ The plugin talks to Resideo over TLS only and redacts every credential from its 
 - [Report Issues](https://github.com/tbaur/homebridge-myresideo/issues)
 - [Changelog](CHANGELOG.md)
 
+## Trademarks
+
+homebridge-myresideo is an independent project. It is not affiliated with or endorsed by Resideo or Honeywell. Resideo is a trademark of Resideo USA LLC. Honeywell Home and Honeywell are trademarks of Honeywell International Inc.
+
 ## License
 
 Copyright 2026 tbaur
