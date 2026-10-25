@@ -166,6 +166,18 @@ describe('config.schema.json', () => {
     },
   )
 
+  it('offers Send Signals to PagerDuty in General, off by default', () => {
+    const prop = schema.schema.properties.options?.properties?.pagerdutySignals
+    expect(prop).toMatchObject({
+      title: 'Send Signals to PagerDuty',
+      type: 'boolean',
+      default: false,
+    })
+    const general = (schema.layout as Array<{ title?: string, items?: string[] }>)
+      .find(block => block.title === 'General')
+    expect(general?.items).toContain('options.pagerdutySignals')
+  })
+
   it.each([
     ['options.freezeThresholdCelsius', () => schema.schema.properties.options?.properties?.freezeThresholdCelsius],
     ['per-device freezeThresholdCelsius', () => schema.schema.properties.options?.properties?.devices?.items?.properties?.freezeThresholdCelsius],

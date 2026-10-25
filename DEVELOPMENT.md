@@ -9,6 +9,8 @@ src/
   index.ts            Entry point; registers the dynamic platform.
   settings.ts         Constants + API endpoints (api.honeywellhome.com).
   platform.ts         Discovery, accessory lifecycle, polling.
+  resideo-signals.ts  House-level PagerDuty conditions (leak, offline, battery, sign-in, outage).
+  pagerduty-signals.ts  Signal-store writer, copied from homebridge-pagerduty. Do not edit it.
   types/              Plugin config + Honeywell API types.
   errors/             Structured, typed error hierarchy with retry hints.
   api/

@@ -25,6 +25,7 @@ Monitor your **Resideo / Honeywell Home WiFi Water Leak & Freeze Detectors** in 
 - **Circuit breaker** during a sustained Resideo outage, so polling fails fast
 - **Keeps cached detectors** if the cloud returns an empty or partial list
 - **Diagnostics** *(optional):* periodic health lines in the Homebridge log
+- **PagerDuty** *(optional, off by default):* page when a detector is wet, a detector is offline, a battery is low, sign-in has stopped, or Resideo has been unreachable for 5 minutes
 
 ### Quality
 - **Strict TypeScript** and a Jest suite with an 80% coverage gate
@@ -98,6 +99,7 @@ Detectors appear in the Home app after startup discovery. Restart Homebridge aft
 | `options.freezeThresholdCelsius` | | Default freeze threshold in °C (−40 to 40). Unset uses the device's own limit |
 | `options.diagnosticsInterval` | | Seconds between health-report log lines (default 0, off) |
 | `options.structuredLogs` | | With diagnostics, also emit a JSON line (default false) |
+| `options.pagerdutySignals` | | Page through homebridge-pagerduty. Off until turned on. See [PagerDuty](docs/README-DETAILED.md#pagerduty). |
 | `options.devices[]` | | Per-device overrides, keyed by `deviceID` |
 
 Per-device overrides and clamp rules are in the [detailed documentation](docs/README-DETAILED.md#full-configuration-reference).

@@ -66,6 +66,11 @@ export interface ResideoPlatformConfig extends PlatformConfig {
         diagnosticsInterval?: number;
         /** Emit diagnostics as machine-readable JSON in addition to the human line. */
         structuredLogs?: boolean;
+        /**
+         * Write house-level detector conditions to the homebridge-pagerduty signal
+         * store. Off until set. Never read back by this plugin.
+         */
+        pagerdutySignals?: boolean;
         /** Per-device overrides. */
         devices?: LeakDetectorOptions[];
     };

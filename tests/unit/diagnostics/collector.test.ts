@@ -330,6 +330,7 @@ describe('DiagnosticsCollector', () => {
         diagnosticsInterval: 300,
         refreshRate: 120,
         structuredLogs: true,
+        pagerdutySignals: false,
         freezeThresholdCelsius: 2,
         devices: 2,
       })
@@ -339,6 +340,13 @@ describe('DiagnosticsCollector', () => {
       expect(serialized).not.toContain('super-secret-secret')
       expect(serialized).not.toContain('super-secret-access')
       expect(serialized).not.toContain('super-secret-refresh')
+
+      const enabled = baseConfig()
+      enabled.options = { ...enabled.options, pagerdutySignals: true }
+      const enabledSnap = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: enabled })
+        .snapshot('diagnostics.start', m.readers)
+      expect(enabledSnap.config).toMatchObject({ pagerdutySignals: true })
+      expect(JSON.stringify(enabledSnap)).not.toContain('super-secret-key')
     })
 
     it('does not attach a config echo to heartbeats', () => {

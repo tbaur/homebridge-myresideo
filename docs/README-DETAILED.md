@@ -9,6 +9,7 @@ Install and a short options table live in the [README](../README.md). This page 
 - [Polling and check-in](#polling-and-check-in)
 - [Discovery and stale removal](#discovery-and-stale-removal)
 - [Diagnostics](#diagnostics)
+- [PagerDuty](#pagerduty)
 - [Troubleshooting](#troubleshooting)
 - [Related docs](#related-docs)
 
@@ -31,6 +32,7 @@ Install and a short options table live in the [README](../README.md). This page 
         "freezeThresholdCelsius": 4,
         "diagnosticsInterval": 0,
         "structuredLogs": false,
+        "pagerdutySignals": false,
         "devices": [
           {
             "deviceID": "L123456",
@@ -60,6 +62,7 @@ Install and a short options table live in the [README](../README.md). This page 
 | `options.freezeThresholdCelsius` | | Default freeze threshold in °C, between −40 and 40 (values outside that range are ignored). Leave unset to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence. |
 | `options.diagnosticsInterval` | | Seconds between health-report log lines. Default 0 (off). Values 1–29 are clamped up to 30. Maximum is 86400 (24h). |
 | `options.structuredLogs` | | When diagnostics are enabled, also emit a machine-readable JSON line next to the human summary. Default false. |
+| `options.pagerdutySignals` | | Write this plugin's alert conditions to homebridge-pagerduty. Off until turned on. See [PagerDuty](#pagerduty). Needs Node 22.13 or later. |
 | `options.devices[]` | | Per-device overrides (see below) |
 
 Per-device overrides (`options.devices[]`), keyed by `deviceID`:
@@ -118,6 +121,41 @@ An active leak and a non-CLOSED circuit breaker appear on the human line only wh
 Healthy↔degraded transitions are logged as they happen. `structuredLogs` adds a JSON line next to the human summary.
 
 The feature checklist in [FEATURES.md](FEATURES.md) lists every reliability behaviour. Architecture: [DEVELOPMENT.md](../DEVELOPMENT.md).
+
+The diagnostics REST state `auth-failed` is a token-refresh cooldown. It is a separate flag from the PagerDuty signal of the same name.
+
+## PagerDuty
+
+This plugin can page through [homebridge-pagerduty](https://github.com/tbaur/homebridge-pagerduty) when something needs attention. It needs Node 22.13 or later. The setting is off until you turn it on.
+
+1. Turn on **Send Signals to PagerDuty** (`options.pagerdutySignals`) in this plugin's settings, under **General**.
+2. Restart Homebridge.
+3. In homebridge-pagerduty's settings, allow homebridge-myresideo to page, save, and restart Homebridge again. [Signals from other plugins](https://github.com/tbaur/homebridge-pagerduty/blob/main/docs/SIGNALS.md#let-a-plugin-page) explains each step and what else you can set for each signal.
+
+Each condition below then opens a PagerDuty alert while it is present, and resolves it when it clears. The page does not name the detector.
+
+| Signal | Severity | Active when |
+| --- | --- | --- |
+| `leak` | critical | A water leak detector this plugin publishes is wet |
+| `detector-offline` | error | A water leak detector this plugin publishes is offline |
+| `low-battery` | warning | A water leak detector this plugin publishes reports a battery at or below 15% |
+| `auth-failed` | error | Sign-in has stopped and will not be retried |
+| `cloud-offline` | error | No detector body for 5 minutes |
+
+How the signals behave:
+
+- `leak` follows `waterPresent` on a detector body Resideo just returned. The summary is "A water leak detector is wet."
+- `detector-offline` follows a body that says the detector is not alive, is offline, or has not checked in. A thrown request is not offline. Omitted reachability fields are online. The summary is "A water leak detector is offline."
+- `low-battery` follows a reported battery at or below 15%. A missing battery stays clear. The summary is "A water leak detector battery is low."
+- A condition pages as soon as one body says so. It clears only when every detector still in HomeKit was part of that read and none of them still have it. A detector omitted from the list, including one waiting out stale-removal, blocks the clear.
+- An empty device list does not clear those three signals and does not count as reaching Resideo. A detector restored from the Homebridge cache does not page until a new body arrives.
+- `auth-failed` turns on when Resideo rejects the account link, refuses this developer app (HTTP 403), or rejects the Consumer Key or Secret. Each case uses its own sentence. A 404, a 429, a network timeout, an open circuit breaker, and a 401 that the client is about to refresh do not turn this on. The diagnostics cooldown of the same name does not turn this on. A locations list does not clear it while the device poll that follows is still running. That poll clears it only when the poll itself does not see a stopped sign-in.
+- `cloud-offline` turns on only after 5 minutes with no detector body, counted from launch and again from the start of a later outage. Later failures do not extend a timer that is already running. It stays off while `auth-failed` is on. If the signal file cannot take the write when the five minutes elapse, the plugin tries again while the outage continues. The summary is "Homebridge has not reached Resideo for 5 minutes. Leak detector state in HomeKit may be stale."
+- At startup the plugin logs one line, `homebridge-pagerduty support is enabled (leak, detector-offline, low-battery, auth-failed, cloud-offline)`, before the first request. The line is logged once, and it is not logged when the setting is off or when startup validation failed.
+- Shutdown closes the store and does not clear a signal.
+- The store needs `node:sqlite`, which Node provides from 22.13. On an older Node the plugin logs one warning and keeps running without signals. Nothing is written until the setting is on.
+
+Summaries are fixed sentences. They do not include a detector name, an account, or an address.
 
 ## Troubleshooting
 

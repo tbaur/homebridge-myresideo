@@ -77,6 +77,12 @@
             "default": false,
             "description": "When diagnostics are enabled (diagnosticsInterval > 0), also emit each diagnostics report as a machine-readable JSON line alongside the human-readable summary. Has no effect while diagnostics are disabled."
           },
+          "pagerdutySignals": {
+            "title": "Send Signals to PagerDuty",
+            "type": "boolean",
+            "default": false,
+            "description": "Write this plugin's alert conditions to homebridge-pagerduty's signal store. Then allow homebridge-myresideo to page in homebridge-pagerduty's settings. Needs Node 22.13 or later."
+          },
           "devices": {
             "type": "array",
             "title": "Per-Device Options",
@@ -135,7 +141,8 @@
           "key": "options.diagnosticsInterval",
           "type": "number"
         },
-        "options.structuredLogs"
+        "options.structuredLogs",
+        "options.pagerdutySignals"
       ]
     },
     {

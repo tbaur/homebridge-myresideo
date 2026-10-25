@@ -29,6 +29,7 @@ Install and a short options table: [README](../README.md). Full options, polling
 - ✅ Bounded request timeouts (including token refresh)
 - ✅ Secret redaction in logs (apikey, bearer/basic auth, access/refresh tokens, consumer secret); API errors use short status text without query strings
 - ✅ Startup config validation (fail fast with actionable messages); distinguishes a bad refresh token from rejected API credentials
+- ✅ Optional PagerDuty signals (`options.pagerdutySignals`, default off): house-level `leak` (critical), `detector-offline` (error), `low-battery` (warning), `auth-failed` (error), and `cloud-offline` after 5 minutes without a detector body (error, suppressed while sign-in has stopped). A body raises immediately; a clear waits until every detector still in HomeKit was in that read. An empty cloud list and a cache restore do not page or clear. Summaries do not name the detector. See [PagerDuty](README-DETAILED.md#pagerduty).
 - ✅ Homebridge v2.0+ support
 - ✅ Node.js 22, 24, and 26 support
 
@@ -45,6 +46,8 @@ homebridge-myresideo/
 ├── src/
 │   ├── index.ts          # Homebridge entry point
 │   ├── platform.ts       # Platform plugin (discovery, polling, HomeKit services)
+│   ├── resideo-signals.ts # Which detector conditions are worth a PagerDuty page
+│   ├── pagerduty-signals.ts # Signal-store writer (copied; do not edit)
 │   ├── settings.ts       # Constants + API endpoints
 │   ├── api/              # OAuth2 token manager, HTTP client, circuit breaker
 │   ├── devices/          # HomeKit accessory handlers
