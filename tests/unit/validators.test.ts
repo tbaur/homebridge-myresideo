@@ -33,6 +33,12 @@ describe('validateConfig', () => {
     expect(result.warnings).toHaveLength(0)
   })
 
+  it('accepts pagerdutySignals without treating it as a credential', () => {
+    const result = validateConfig(baseConfig({ options: { pagerdutySignals: true } }))
+    expect(result.errors).toHaveLength(0)
+    expect(result.warnings).toHaveLength(0)
+  })
+
   it('errors when the config is undefined', () => {
     const result = validateConfig(undefined)
     expect(result.errors.length).toBeGreaterThan(0)

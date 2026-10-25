@@ -82,4 +82,12 @@ module.exports = [
       'comma-dangle': ['error', 'always-multiline'],
     },
   },
+  {
+    // Copied verbatim from homebridge-pagerduty docs/SIGNALS-AGENT.md.
+    files: ['src/pagerduty-signals.ts'],
+    rules: {
+      'semi': 'off',
+      'comma-dangle': 'off',
+    },
+  },
 ]

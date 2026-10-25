@@ -386,6 +386,7 @@ function redactConfig(config: ResideoPlatformConfig): Record<string, unknown> {
     diagnosticsInterval: options?.diagnosticsInterval ?? 0,
     refreshRate: options?.refreshRate ?? null,
     structuredLogs: options?.structuredLogs ?? false,
+    pagerdutySignals: options?.pagerdutySignals === true,
     freezeThresholdCelsius: options?.freezeThresholdCelsius ?? null,
     devices: Array.isArray(options?.devices) ? options.devices.length : 0,
   }

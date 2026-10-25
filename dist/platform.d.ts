@@ -48,6 +48,18 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * diagnostics `emptyDiscovery` so heartbeats are not falsely "healthy".
      */
     private emptyDiscoveryActive;
+    /** House-level PagerDuty signals. Absent unless options.pagerdutySignals is on. */
+    private signals?;
+    /**
+     * The poll that follows a non-empty locations list keeps that list's coverage,
+     * so a per-detector GET that throws still counts as the body the list supplied.
+     */
+    private signalsInherit;
+    /**
+     * A locations list reached Resideo while a poll was already running.
+     * That poll must not start the outage grace when it finishes empty.
+     */
+    private signalsReachedDuringPoll;
     constructor(log: Logging, config: ResideoPlatformConfig, api: API);
     /**
      * Record a device state transition (leak/offline/battery/freeze) for the
@@ -121,6 +133,30 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * Returns per-cycle success/failure counts for diagnostics.
      */
     private pollAll;
+    /**
+     * Record the detectors a non-empty locations list just returned.
+     *
+     * Coverage starts over, so an id omitted from this list (including one
+     * waiting out stale-removal) cannot stay covered by the previous poll.
+     * The following poll inherits this coverage: a GET that then throws still
+     * counts as the body this list already supplied.
+     *
+     * Auth stays as it was. The poll that follows this list clears it only
+     * when that poll does not itself see a stopped sign-in. A list that arrives
+     * while a poll is running can raise, and cannot replace a true reading or
+     * settle a clear over that poll.
+     */
+    private recordDiscoverySignals;
+    /** Recompute house signals from this poll, then record whether Resideo answered. */
+    private finishSignalCycle;
+    /**
+     * Detector ids still represented in HomeKit.
+     *
+     * Handlers are the ones being polled. Cached accessories that are pending
+     * stale-removal are still published, so an omitted id blocks a clear until
+     * it is removed or a later read covers it.
+     */
+    private publishedDetectorIds;
     private handleError;
     /**
      * Errors that must stay visible at error level during polling (re-link /

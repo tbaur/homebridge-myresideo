@@ -98,6 +98,7 @@ Detectors appear in the Home app after startup discovery. Restart Homebridge aft
 | `options.freezeThresholdCelsius` | | Default freeze threshold in °C (−40 to 40). Unset uses the device's own limit |
 | `options.diagnosticsInterval` | | Seconds between health-report log lines (default 0, off) |
 | `options.structuredLogs` | | With diagnostics, also emit a JSON line (default false) |
+| `options.pagerdutySignals` | | Page through homebridge-pagerduty. Off until turned on. See [PagerDuty](docs/README-DETAILED.md#pagerduty). |
 | `options.devices[]` | | Per-device overrides, keyed by `deviceID` |
 
 Per-device overrides and clamp rules are in the [detailed documentation](docs/README-DETAILED.md#full-configuration-reference).

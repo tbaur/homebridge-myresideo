@@ -15,6 +15,7 @@ const leak_sensor_1 = require("./devices/leak-sensor");
 const collector_1 = require("./diagnostics/collector");
 const format_1 = require("./diagnostics/format");
 const errors_1 = require("./errors");
+const resideo_signals_1 = require("./resideo-signals");
 const settings_1 = require("./settings");
 const utils_1 = require("./utils");
 /**
@@ -91,6 +92,18 @@ class ResideoPlatform {
      * diagnostics `emptyDiscovery` so heartbeats are not falsely "healthy".
      */
     emptyDiscoveryActive = false;
+    /** House-level PagerDuty signals. Absent unless options.pagerdutySignals is on. */
+    signals;
+    /**
+     * The poll that follows a non-empty locations list keeps that list's coverage,
+     * so a per-detector GET that throws still counts as the body the list supplied.
+     */
+    signalsInherit = false;
+    /**
+     * A locations list reached Resideo while a poll was already running.
+     * That poll must not start the outage grace when it finishes empty.
+     */
+    signalsReachedDuringPoll = false;
     constructor(log, config, api) {
         this.log = log;
         this.api = api;
@@ -108,6 +121,15 @@ class ResideoPlatform {
             this.log.error('Invalid configuration; plugin will not start until it is corrected.');
             this.disabled = true;
             return;
+        }
+        if (this.config.options?.pagerdutySignals === true) {
+            this.signals = (0, resideo_signals_1.createResideoSignals)({
+                plugin: settings_1.PLUGIN_NAME,
+                storagePath: this.api.user.storagePath(),
+                log: this.log,
+            });
+            this.log.info(resideo_signals_1.PAGERDUTY_STARTUP_LOG);
+            this.signals.start();
         }
         this.log.info(`Initializing ${this.config.name ?? settings_1.PLATFORM_NAME} platform`);
         // The collector is created before the client/token manager so their metric
@@ -150,6 +172,7 @@ class ResideoPlatform {
         });
         this.api.on('shutdown', () => {
             this.stopped = true;
+            this.signals?.close();
             this.stopDiagnostics();
             if (this.pollTimer) {
                 clearInterval(this.pollTimer);
@@ -236,6 +259,10 @@ class ResideoPlatform {
             // restart even after the cloud recovers. Keep/restore what we can and retry.
             // Empty responses also must not count toward stale-removal confirmation.
             if (detectors.length === 0) {
+                // An empty list is not a detector body. It must not clear a page and
+                // must not count as reaching Resideo. Cache restore below does not
+                // observe; only a later GET body can.
+                this.signals?.noteOutage();
                 this.emptyDiscoveryActive = true;
                 const cachedDetectorCount = this.countCachedDetectors();
                 if (cachedDetectorCount > 0) {
@@ -287,6 +314,9 @@ class ResideoPlatform {
                 this.log.warn('Cloud list is missing cached detector(s) but the platform is unstable; '
                     + 'not removing accessories yet');
             }
+            // After stale-removal, so a detector removed in this pass is already gone
+            // and cannot block the clear. Omitted ids that are still published can.
+            this.recordDiscoverySignals(detectors);
             // Partial / unresolved lists keep polling what we have and re-discover
             // until missing detectors are confirmed gone (or they reappear).
             if (this.pendingRemovalCounts.size > 0 || hasUnresolvedMissing) {
@@ -304,6 +334,15 @@ class ResideoPlatform {
             this.startDiagnostics();
         }
         catch (err) {
+            if (!this.stopped) {
+                const failure = (0, resideo_signals_1.signalFailureFrom)(err);
+                if (failure) {
+                    this.signals?.noteAuth(failure);
+                }
+                else {
+                    this.signals?.noteOutage();
+                }
+            }
             this.handleError('discoverDevices', err);
             if (this.isFatal(err)) {
                 this.log.error('Discovery failed with a non-recoverable error; not retrying automatically.');
@@ -552,6 +591,8 @@ class ResideoPlatform {
                 this.bootSummaryLogged.delete(deviceID);
             }
             if (cachedId) {
+                // A corrupt cache entry has no deviceID and must not recompute signals.
+                this.signals?.release(cachedId, this.publishedDetectorIds());
                 this.log.info(`Removed stale water leak detector: ${accessory.displayName}`);
             }
             else {
@@ -592,11 +633,17 @@ class ResideoPlatform {
             this.log.debug('Skipping poll tick; previous cycle still running');
             return;
         }
+        const inherit = this.signalsInherit;
+        this.signalsInherit = false;
+        this.signals?.beginPoll(inherit);
         this.isPolling = true;
         const cycleStart = Date.now();
         try {
-            const { ok, failed } = await this.pollAll();
-            this.diagnostics?.pollCycle(ok, failed, Date.now() - cycleStart);
+            const result = await this.pollAll();
+            this.diagnostics?.pollCycle(result.ok, result.failed, Date.now() - cycleStart);
+            if (!this.stopped) {
+                this.finishSignalCycle(result, inherit);
+            }
         }
         finally {
             this.isPolling = false;
@@ -608,7 +655,7 @@ class ResideoPlatform {
      */
     async pollAll() {
         if (!this.client) {
-            return { ok: 0, failed: 0 };
+            return { ok: 0, failed: 0, sawBody: false };
         }
         // Snapshot the device IDs that currently have a known location. Each worker
         // re-checks per device below, since pruning/discovery can mutate the maps
@@ -616,11 +663,13 @@ class ResideoPlatform {
         const deviceIds = [...this.handlers.keys()].filter(id => this.locationByDevice.has(id));
         const workerCount = Math.min(settings_1.POLL_DEVICE_CONCURRENCY, deviceIds.length);
         if (workerCount === 0) {
-            return { ok: 0, failed: 0 };
+            return { ok: 0, failed: 0, sawBody: false };
         }
         let nextIndex = 0;
         let ok = 0;
         let failed = 0;
+        let sawBody = false;
+        let auth;
         // One actionable auth/config error log per cycle so concurrent workers do
         // not spam the same re-link message, while later cycles still surface it.
         let loggedAuthFailureThisCycle = false;
@@ -645,6 +694,8 @@ class ResideoPlatform {
                         return;
                     }
                     handler.updateStatus(device, Date.now() - startedAt);
+                    this.signals?.observe(device);
+                    sawBody = true;
                     ok++;
                 }
                 catch (err) {
@@ -652,8 +703,14 @@ class ResideoPlatform {
                     // misses stay at debug (myleviton pattern); circuit-breaker transitions
                     // are the operator-visible outage signal. Auth/config failures still
                     // surface once per cycle via handleError so re-link signaling is not
-                    // demoted to debug after discovery has already succeeded.
+                    // demoted to debug after discovery has already succeeded. A thrown
+                    // read leaves that detector's last signal contribution in place.
                     failed++;
+                    const failure = (0, resideo_signals_1.signalFailureFrom)(err);
+                    if (failure && !auth) {
+                        auth = failure;
+                        this.signals?.noteAuth(failure);
+                    }
                     if (this.isActionablePollError(err) && !loggedAuthFailureThisCycle) {
                         loggedAuthFailureThisCycle = true;
                         this.handleError('poll', err);
@@ -665,7 +722,71 @@ class ResideoPlatform {
             }
         };
         await Promise.all(Array.from({ length: workerCount }, () => worker()));
-        return { ok, failed };
+        return { ok, failed, sawBody, auth };
+    }
+    /**
+     * Record the detectors a non-empty locations list just returned.
+     *
+     * Coverage starts over, so an id omitted from this list (including one
+     * waiting out stale-removal) cannot stay covered by the previous poll.
+     * The following poll inherits this coverage: a GET that then throws still
+     * counts as the body this list already supplied.
+     *
+     * Auth stays as it was. The poll that follows this list clears it only
+     * when that poll does not itself see a stopped sign-in. A list that arrives
+     * while a poll is running can raise, and cannot replace a true reading or
+     * settle a clear over that poll.
+     */
+    recordDiscoverySignals(detectors) {
+        if (!this.signals) {
+            return;
+        }
+        if (this.isPolling) {
+            for (const { device } of detectors) {
+                this.signals.raiseOnly(device);
+            }
+            this.signals.noteCloudReached();
+            this.signalsReachedDuringPoll = true;
+            return;
+        }
+        this.signals.beginPoll(false);
+        for (const { device } of detectors) {
+            this.signals.observe(device);
+        }
+        this.signals.settle(this.publishedDetectorIds());
+        this.signals.noteCloudReached();
+        this.signalsInherit = true;
+    }
+    /** Recompute house signals from this poll, then record whether Resideo answered. */
+    finishSignalCycle(result, inherit) {
+        if (!this.signals) {
+            return;
+        }
+        this.signals.settle(this.publishedDetectorIds());
+        const reachedDuringPoll = this.signalsReachedDuringPoll;
+        this.signalsReachedDuringPoll = false;
+        if (result.auth) {
+            return;
+        }
+        if (result.sawBody || inherit || reachedDuringPoll) {
+            this.signals.noteReached();
+            return;
+        }
+        this.signals.noteOutage();
+    }
+    /**
+     * Detector ids still represented in HomeKit.
+     *
+     * Handlers are the ones being polled. Cached accessories that are pending
+     * stale-removal are still published, so an omitted id blocks a clear until
+     * it is removed or a later read covers it.
+     */
+    publishedDetectorIds() {
+        const ids = new Set(this.handlers.keys());
+        for (const id of this.cachedDetectorIds()) {
+            ids.add(id);
+        }
+        return [...ids];
     }
     handleError(context, err) {
         if (err instanceof errors_1.RefreshTokenInvalidError) {

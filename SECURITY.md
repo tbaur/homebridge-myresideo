@@ -42,6 +42,7 @@ This plugin implements:
 
 - The `consumerKey` (API key), `consumerSecret`, and the tokens from the last Config UI save are read from the Homebridge platform config. Homebridge stores this config in plain text on the host, so host hardening is the primary mitigation.
 - Token persistence is handled automatically: after every successful refresh, the plugin writes the current refresh and access tokens to a plugin-owned file under Homebridge storage (`0600`, atomic replace). Runtime refresh never reads or rewrites `config.json`. A later Config UI re-link wins over a stale store.
+- When PagerDuty signals are on, the plugin writes condition rows to the homebridge-pagerduty signal file. That file holds no tokens, credentials, or detector names.
 - No credentials, tokens, or personally identifying information are written to logs.
 
 ## Response Timeline
