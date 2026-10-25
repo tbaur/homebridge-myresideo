@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [2.1.0](https://github.com/tbaur/homebridge-myresideo/compare/v2.0.2...v2.1.0) (2026-10-25)
+
+
+### Features
+
+* page leak, offline, battery, sign-in, and outage through PagerDuty ([360b14a](https://github.com/tbaur/homebridge-myresideo/commit/360b14a1073e2ca1a69747c01514154919b96c5c))
+
 ## [2.0.2](https://github.com/tbaur/homebridge-myresideo/compare/v2.0.1...v2.0.2) (2026-09-13)
 
 
