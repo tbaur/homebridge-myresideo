@@ -18,15 +18,10 @@ import type { TokenManager as TokenManagerType } from '../../src/api/auth'
 
 const BASE = API_BASE_URL
 const OVERSIZED_BODY = 'x'.repeat(MAX_RESPONSE_BODY_BYTES + 1)
-
-/**
- * A socket-level failure as Node's https stack surfaces it. nock >= 14 only
- * emits the request 'error' event for a real Error instance; a plain
- * `{ code, message }` object is silently ignored (the request hangs).
- */
-function socketError(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code })
-}
+// A string, not an Error from this file. Nock 15 builds the Error in its own
+// module. An Error created in Jest's vm never reaches https.request, and the
+// request hangs.
+const SOCKET_RESET = 'reset'
 
 function stubTokenManager() {
   return {
@@ -38,10 +33,6 @@ function stubTokenManager() {
 
 afterEach(() => {
   nock.cleanAll()
-})
-
-afterAll(() => {
-  nock.restore()
 })
 
 describe('TokenManager default requester (native https)', () => {
@@ -112,7 +103,7 @@ describe('TokenManager default requester (native https)', () => {
   })
 
   it('maps a socket-level failure to a NetworkError', async () => {
-    nock(BASE).post('/oauth2/token').replyWithError(socketError('ECONNRESET', 'reset'))
+    nock(BASE).post('/oauth2/token').replyWithError(SOCKET_RESET)
 
     const manager = new TokenManager({
       consumerKey: 'key',
@@ -162,7 +153,7 @@ describe('ResideoApiClient default transport (native https)', () => {
     nock(BASE)
       .get('/v2/locations')
       .query({ apikey: 'my-key' })
-      .delayConnection(300)
+      .delay(300)
       .reply(200, [])
 
     const client = new ResideoApiClient({
@@ -178,7 +169,7 @@ describe('ResideoApiClient default transport (native https)', () => {
     nock(BASE)
       .get('/v2/locations')
       .query({ apikey: 'my-key' })
-      .replyWithError(socketError('ECONNRESET', 'reset'))
+      .replyWithError(SOCKET_RESET)
 
     const client = new ResideoApiClient({
       tokenManager: stubTokenManager(),

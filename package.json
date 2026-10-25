@@ -55,7 +55,7 @@
     "globals": "^17.7.0",
     "homebridge": "^2.1.0",
     "jest": "^30.5.1",
-    "nock": "^14.0.16",
+    "nock": "^15.0.1",
     "ts-jest": "29.4.15",
     "typescript": "^6.0.3"
   },
@@ -71,10 +71,10 @@
     "prepublishOnly": "npm run clean && npm run build",
     "get-tokens": "node scripts/get-tokens.mjs",
     "pretest": "npm run build",
-    "test": "NODE_ENV=test jest --coverage",
-    "test:watch": "NODE_ENV=test jest --watch",
-    "test:unit": "npm run build && NODE_ENV=test jest --coverage --testPathPatterns=tests/unit",
-    "test:integration": "npm run build && NODE_ENV=test jest --testPathPatterns=tests/integration --collectCoverage=false",
+    "test": "NODE_ENV=test NODE_OPTIONS=--require=./tests/preload-nock.js jest --coverage",
+    "test:watch": "NODE_ENV=test NODE_OPTIONS=--require=./tests/preload-nock.js jest --watch",
+    "test:unit": "npm run build && NODE_ENV=test NODE_OPTIONS=--require=./tests/preload-nock.js jest --coverage --testPathPatterns=tests/unit",
+    "test:integration": "npm run build && NODE_ENV=test NODE_OPTIONS=--require=./tests/preload-nock.js jest --testPathPatterns=tests/integration --collectCoverage=false",
     "lint": "eslint . --max-warnings 0 --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
     "lint:fix": "eslint . --fix --max-warnings 0 --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
   },

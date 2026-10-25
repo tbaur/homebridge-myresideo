@@ -50,7 +50,6 @@ function findDevice(devices: WaterLeakDetector[], name: string): WaterLeakDetect
 }
 
 afterEach(() => nock.cleanAll())
-afterAll(() => nock.restore())
 
 describe('locations fixture → client → mappers', () => {
   it('parses the locations payload and discovers only leak detectors', async () => {
