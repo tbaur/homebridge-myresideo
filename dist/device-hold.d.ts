@@ -16,7 +16,7 @@
 import type { WaterLeakDetector } from './types';
 /** What callers should apply for one detector body. */
 export interface HeldDevice {
-    /** The record to show. Leak state is always the fresh one. */
+    /** The record to show. A fresh leak always shows; a held leak is never cleared by a placeholder. */
     device: WaterLeakDetector;
     /**
      * True while an unreachable report is inside the hold. Callers that page

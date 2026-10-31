@@ -67,8 +67,10 @@ class DeviceHold {
         if (!entry.trusted) {
             return { device: reported, isOfflineHeld: true };
         }
+        // A placeholder says dry whether or not the detector is wet, so it can
+        // raise a leak but must not clear one.
         return {
-            device: { ...entry.trusted, waterPresent: raw.waterPresent },
+            device: { ...entry.trusted, waterPresent: entry.trusted.waterPresent || raw.waterPresent },
             isOfflineHeld: true,
         };
     }

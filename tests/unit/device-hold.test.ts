@@ -76,6 +76,14 @@ describe('DeviceHold', () => {
     expect(result.device.isAlive).toBe(true)
   })
 
+  it('does not let a dry placeholder clear a leak during the hold', () => {
+    hold.apply(healthy({ waterPresent: true }))
+    const result = hold.apply(placeholder({ waterPresent: false }))
+
+    expect(result.isOfflineHeld).toBe(true)
+    expect(result.device.waterPresent).toBe(true)
+  })
+
   it('reports offline once the hold has elapsed, without the placeholder battery', () => {
     hold.apply(healthy())
     hold.apply(placeholder())

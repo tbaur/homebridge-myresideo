@@ -19,7 +19,7 @@ import { isDeviceActive } from './utils/mappers'
 
 /** What callers should apply for one detector body. */
 export interface HeldDevice {
-  /** The record to show. Leak state is always the fresh one. */
+  /** The record to show. A fresh leak always shows; a held leak is never cleared by a placeholder. */
   device: WaterLeakDetector
   /**
    * True while an unreachable report is inside the hold. Callers that page
@@ -90,8 +90,10 @@ export class DeviceHold {
     if (!entry.trusted) {
       return { device: reported, isOfflineHeld: true }
     }
+    // A placeholder says dry whether or not the detector is wet, so it can
+    // raise a leak but must not clear one.
     return {
-      device: { ...entry.trusted, waterPresent: raw.waterPresent },
+      device: { ...entry.trusted, waterPresent: entry.trusted.waterPresent || raw.waterPresent },
       isOfflineHeld: true,
     }
   }
