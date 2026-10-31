@@ -232,7 +232,7 @@ describe('PagerDuty signal wiring', () => {
     expect(signals.observe).toHaveBeenCalledWith(expect.objectContaining({
       deviceID: 'dev-1',
       waterPresent: true,
-    }))
+    }), false)
     expect(signals.settle).toHaveBeenCalledWith(expect.arrayContaining(['dev-1']))
     expect(signals.beginPoll).toHaveBeenNthCalledWith(1, false)
     expect(signals.beginPoll).toHaveBeenNthCalledWith(2, true)
@@ -280,6 +280,29 @@ describe('PagerDuty signal wiring', () => {
     handlers.shutdown()
   })
 
+  it('holds a placeholder GET against the cached detector instead of paging offline', async () => {
+    const cached = { ...leakDevice, isAlive: true, batteryRemaining: 70 }
+    const placeholder = {
+      ...leakDevice,
+      waterPresent: true,
+      isAlive: false,
+      isDeviceOffline: true,
+      batteryRemaining: 0,
+    }
+    mockGetLocations.mockResolvedValue([])
+    mockGetDetector.mockResolvedValue(placeholder)
+
+    const { api, handlers } = makeApi()
+    const platform = new ResideoPlatform(makeLog(), validConfig(true), api as unknown as API)
+    platform.configureAccessory(cachedAccessory(cached))
+    handlers.didFinishLaunching()
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    expect(signals.observe).toHaveBeenCalledWith({ ...cached, waterPresent: true }, true)
+
+    handlers.shutdown()
+  })
+
   it('observes a later GET of a cached detector and not the cached body', async () => {
     const cached = { ...leakDevice, waterPresent: true }
     const fresh = { ...leakDevice, waterPresent: false }
@@ -293,7 +316,7 @@ describe('PagerDuty signal wiring', () => {
     await new Promise<void>(resolve => setImmediate(resolve))
 
     expect(signals.observe).toHaveBeenCalledTimes(1)
-    expect(signals.observe).toHaveBeenCalledWith(fresh)
+    expect(signals.observe).toHaveBeenCalledWith(fresh, false)
     expect(signals.noteReached).toHaveBeenCalledTimes(1)
     expect(signals.beginPoll).toHaveBeenCalledWith(false)
 
@@ -358,7 +381,7 @@ describe('PagerDuty signal wiring', () => {
     expect(signals.noteAuth).toHaveBeenCalledWith('forbidden')
     expect(signals.noteReached).not.toHaveBeenCalled()
     expect(signals.noteCloudReached).toHaveBeenCalled()
-    expect(signals.observe).toHaveBeenCalledWith(wet)
+    expect(signals.observe).toHaveBeenCalledWith(wet, false)
 
     handlers.shutdown()
   })
@@ -480,7 +503,7 @@ describe('PagerDuty signal wiring', () => {
     expect(signals.beginPoll).toHaveBeenCalledTimes(beginCalls)
     expect(signals.settle).toHaveBeenCalledTimes(settleCalls)
     expect(signals.noteReached).not.toHaveBeenCalled()
-    expect(signals.raiseOnly).toHaveBeenCalledWith(expect.objectContaining({ waterPresent: false }))
+    expect(signals.raiseOnly).toHaveBeenCalledWith(expect.objectContaining({ waterPresent: false }), false)
 
     releaseGet?.(wet)
     await new Promise<void>(resolve => setImmediate(resolve))

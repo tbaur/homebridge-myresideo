@@ -29,6 +29,8 @@ import {
   CLOUD_WRITE_RETRY_MS,
   AUTH_FORBIDDEN_SUMMARY,
   AUTH_REJECTED_SUMMARY,
+  CLOUD_DEGRADED_MIN_DETECTORS,
+  CLOUD_DEGRADED_SUMMARY,
   CLOUD_OFFLINE_GRACE_MS,
   CLOUD_OFFLINE_SUMMARY,
   DETECTOR_OFFLINE_SUMMARY,
@@ -174,6 +176,8 @@ describe('ResideoSignals', () => {
       isAlive: false,
       batteryRemaining: LOW_BATTERY_THRESHOLD,
     }))
+    expect(writer.last(SIGNAL_DETECTOR_OFFLINE)).toBeUndefined()
+    signals.settle(['dev-1'])
 
     expect(writer.last(SIGNAL_LEAK)).toEqual({
       active: true,
@@ -209,7 +213,73 @@ describe('ResideoSignals', () => {
     ['is not alive', { isAlive: false }],
   ])('pages a detector that %s', (_label, fields) => {
     signals.observe(detector(fields))
+    signals.settle(['dev-1'])
     expect(writer.last(SIGNAL_DETECTOR_OFFLINE)?.active).toBe(true)
+  })
+
+  it('does not page offline for a body still inside the hold, but still pages its leak', () => {
+    signals.observe(detector({ isAlive: false, waterPresent: true }), true)
+    signals.settle(['dev-1'])
+
+    expect(writer.last(SIGNAL_DETECTOR_OFFLINE)?.active).toBe(false)
+    expect(writer.last(SIGNAL_LEAK)?.active).toBe(true)
+  })
+
+  it('pages cloud-offline instead of detector-offline when every detector is offline', () => {
+    signals.observe(detector({ deviceID: 'a', isAlive: false }))
+    signals.observe(detector({ deviceID: 'b', isDeviceOffline: true }))
+    signals.settle(['a', 'b'])
+
+    expect(writer.last(SIGNAL_DETECTOR_OFFLINE)?.active).toBe(false)
+    expect(writer.last(SIGNAL_CLOUD_OFFLINE)).toEqual({
+      active: true,
+      severity: 'error',
+      summary: CLOUD_DEGRADED_SUMMARY,
+    })
+
+    signals.beginPoll(false)
+    signals.observe(detector({ deviceID: 'a' }))
+    signals.observe(detector({ deviceID: 'b', isDeviceOffline: true }))
+    signals.settle(['a', 'b'])
+
+    expect(writer.last(SIGNAL_DETECTOR_OFFLINE)?.active).toBe(true)
+    expect(writer.last(SIGNAL_CLOUD_OFFLINE)).toEqual({
+      active: false,
+      severity: 'error',
+      summary: CLOUD_DEGRADED_SUMMARY,
+    })
+  })
+
+  it('treats a lone offline detector as a detector problem, not a cloud problem', () => {
+    expect(CLOUD_DEGRADED_MIN_DETECTORS).toBe(2)
+    signals.observe(detector({ deviceID: 'a', isAlive: false }))
+    signals.settle(['a'])
+
+    expect(writer.last(SIGNAL_DETECTOR_OFFLINE)?.active).toBe(true)
+    expect(writer.last(SIGNAL_CLOUD_OFFLINE)).toBeUndefined()
+  })
+
+  it('keeps the unreachable summary when Resideo stops answering during an all-offline report', () => {
+    signals.start()
+    signals.observe(detector({ deviceID: 'a', isAlive: false }))
+    signals.observe(detector({ deviceID: 'b', isAlive: false }))
+    signals.settle(['a', 'b'])
+    jest.advanceTimersByTime(CLOUD_OFFLINE_GRACE_MS)
+
+    expect(writer.last(SIGNAL_CLOUD_OFFLINE)).toEqual({
+      active: true,
+      severity: 'error',
+      summary: CLOUD_OFFLINE_SUMMARY,
+    })
+  })
+
+  it('does not page cloud-offline for an all-offline report while sign-in has stopped', () => {
+    signals.noteAuth('rejected')
+    signals.observe(detector({ deviceID: 'a', isAlive: false }))
+    signals.observe(detector({ deviceID: 'b', isAlive: false }))
+    signals.settle(['a', 'b'])
+
+    expect(writer.last(SIGNAL_CLOUD_OFFLINE)?.active).toBe(false)
   })
 
   it('does not page a battery above the threshold', () => {

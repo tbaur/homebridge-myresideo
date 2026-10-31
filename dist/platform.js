@@ -15,6 +15,7 @@ const leak_sensor_1 = require("./devices/leak-sensor");
 const collector_1 = require("./diagnostics/collector");
 const format_1 = require("./diagnostics/format");
 const errors_1 = require("./errors");
+const device_hold_1 = require("./device-hold");
 const resideo_signals_1 = require("./resideo-signals");
 const settings_1 = require("./settings");
 const utils_1 = require("./utils");
@@ -104,12 +105,15 @@ class ResideoPlatform {
      * That poll must not start the outage grace when it finishes empty.
      */
     signalsReachedDuringPoll = false;
+    /** Keeps the last trusted state while Resideo briefly reports a detector unreachable. */
+    deviceHold;
     constructor(log, config, api) {
         this.log = log;
         this.api = api;
         this.Service = api.hap.Service;
         this.Characteristic = api.hap.Characteristic;
         this.config = config;
+        this.deviceHold = new device_hold_1.DeviceHold(this.offlineHoldMs);
         const { errors, warnings } = (0, utils_1.validateConfig)(config);
         for (const warning of warnings) {
             this.log.warn(warning);
@@ -200,6 +204,16 @@ class ResideoPlatform {
             this.log.debug(`Platform disabled by invalid config; cached accessory "${accessory.displayName}" will not be updated.`);
         }
         this.accessories.push(accessory);
+        // The cache holds the last state this plugin showed, so a placeholder
+        // record right after a restart can be held against it.
+        this.deviceHold.seed(accessory.context.device);
+    }
+    get offlineHoldMs() {
+        const configured = this.config.options?.offlineHoldMinutes;
+        const minutes = typeof configured === 'number' && Number.isFinite(configured)
+            ? configured
+            : settings_1.DEFAULT_OFFLINE_HOLD_MIN;
+        return Math.min(Math.max(minutes, 0), settings_1.MAX_OFFLINE_HOLD_MIN) * 60_000;
     }
     get refreshRateMs() {
         // Both ends of the range are hazards, and both collapse to a tight poll loop.
@@ -238,7 +252,7 @@ class ResideoPlatform {
                             + 'reported without a deviceID; it cannot be mapped to a HomeKit accessory.');
                         continue;
                     }
-                    detectors.push({ device, locationId: location.locationID });
+                    detectors.push({ ...this.deviceHold.apply(device), locationId: location.locationID });
                 }
             }
             // After a few empty retries, keep looking but stop spamming per-attempt
@@ -586,6 +600,7 @@ class ResideoPlatform {
                 this.handlers.delete(deviceID);
                 this.locationByDevice.delete(deviceID);
                 this.pendingRemovalCounts.delete(deviceID);
+                this.deviceHold.release(deviceID);
                 // Forget the boot-summary marker so a detector that later returns to the
                 // account is reported again rather than being silently re-added.
                 this.bootSummaryLogged.delete(deviceID);
@@ -689,12 +704,13 @@ class ResideoPlatform {
                 // single successful-attempt latency that feeds the diagnostics p50/p95.
                 const startedAt = Date.now();
                 try {
-                    const device = await this.client.getWaterLeakDetector(deviceID, locationId);
+                    const body = await this.client.getWaterLeakDetector(deviceID, locationId);
                     if (this.stopped) {
                         return;
                     }
+                    const { device, isOfflineHeld } = this.deviceHold.apply(body);
                     handler.updateStatus(device, Date.now() - startedAt);
-                    this.signals?.observe(device);
+                    this.signals?.observe(device, isOfflineHeld);
                     sawBody = true;
                     ok++;
                 }
@@ -742,16 +758,16 @@ class ResideoPlatform {
             return;
         }
         if (this.isPolling) {
-            for (const { device } of detectors) {
-                this.signals.raiseOnly(device);
+            for (const { device, isOfflineHeld } of detectors) {
+                this.signals.raiseOnly(device, isOfflineHeld);
             }
             this.signals.noteCloudReached();
             this.signalsReachedDuringPoll = true;
             return;
         }
         this.signals.beginPoll(false);
-        for (const { device } of detectors) {
-            this.signals.observe(device);
+        for (const { device, isOfflineHeld } of detectors) {
+            this.signals.observe(device, isOfflineHeld);
         }
         this.signals.settle(this.publishedDetectorIds());
         this.signals.noteCloudReached();

@@ -94,7 +94,15 @@ function validateConfig(config) {
     }
     const options = config?.options;
     if (options) {
-        const { refreshRate, freezeThresholdCelsius, diagnosticsInterval, devices } = options;
+        const { refreshRate, freezeThresholdCelsius, diagnosticsInterval, offlineHoldMinutes, devices } = options;
+        if (offlineHoldMinutes !== undefined) {
+            if (typeof offlineHoldMinutes !== 'number' || !Number.isFinite(offlineHoldMinutes)) {
+                warnings.push(`options.offlineHoldMinutes must be a finite number; using the default of ${settings_1.DEFAULT_OFFLINE_HOLD_MIN}.`);
+            }
+            else if (offlineHoldMinutes < 0 || offlineHoldMinutes > settings_1.MAX_OFFLINE_HOLD_MIN) {
+                warnings.push(`options.offlineHoldMinutes ${offlineHoldMinutes} is outside 0–${settings_1.MAX_OFFLINE_HOLD_MIN}; it will be clamped.`);
+            }
+        }
         if (refreshRate !== undefined) {
             if (typeof refreshRate !== 'number' || !Number.isFinite(refreshRate)) {
                 warnings.push('options.refreshRate must be a finite number; using the default instead.');

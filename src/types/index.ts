@@ -65,6 +65,12 @@ export interface ResideoPlatformConfig extends PlatformConfig {
     /** Default freeze threshold in Celsius applied to all detectors. */
     freezeThresholdCelsius?: number
     /**
+     * Minutes a detector must stay unreachable before it is reported offline.
+     * During the hold the last trusted state is kept; leaks still report at once.
+     * `0` reports offline on the first poll that says so.
+     */
+    offlineHoldMinutes?: number
+    /**
      * Health-report cadence in seconds. Emits a periodic diagnostics line to
      * the log every N seconds; `0` (the default) disables the subsystem.
      */

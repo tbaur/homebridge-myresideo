@@ -12,7 +12,7 @@
  * It does not read the store. A detector name never enters a summary.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ResideoSignals = exports.CLOUD_OFFLINE_SUMMARY = exports.AUTH_CREDENTIALS_SUMMARY = exports.AUTH_FORBIDDEN_SUMMARY = exports.AUTH_REJECTED_SUMMARY = exports.LOW_BATTERY_SUMMARY = exports.DETECTOR_OFFLINE_SUMMARY = exports.LEAK_SUMMARY = exports.CLOUD_WRITE_RETRY_MS = exports.CLOUD_OFFLINE_GRACE_MS = exports.SIGNAL_CLOUD_OFFLINE = exports.SIGNAL_AUTH_FAILED = exports.SIGNAL_LOW_BATTERY = exports.SIGNAL_DETECTOR_OFFLINE = exports.SIGNAL_LEAK = exports.PAGERDUTY_STARTUP_LOG = void 0;
+exports.ResideoSignals = exports.CLOUD_DEGRADED_MIN_DETECTORS = exports.CLOUD_DEGRADED_SUMMARY = exports.CLOUD_OFFLINE_SUMMARY = exports.AUTH_CREDENTIALS_SUMMARY = exports.AUTH_FORBIDDEN_SUMMARY = exports.AUTH_REJECTED_SUMMARY = exports.LOW_BATTERY_SUMMARY = exports.DETECTOR_OFFLINE_SUMMARY = exports.LEAK_SUMMARY = exports.CLOUD_WRITE_RETRY_MS = exports.CLOUD_OFFLINE_GRACE_MS = exports.SIGNAL_CLOUD_OFFLINE = exports.SIGNAL_AUTH_FAILED = exports.SIGNAL_LOW_BATTERY = exports.SIGNAL_DETECTOR_OFFLINE = exports.SIGNAL_LEAK = exports.PAGERDUTY_STARTUP_LOG = void 0;
 exports.signalFailureFrom = signalFailureFrom;
 exports.createResideoSignals = createResideoSignals;
 const errors_1 = require("./errors");
@@ -36,6 +36,16 @@ exports.AUTH_REJECTED_SUMMARY = 'Resideo rejected the account link. This plugin 
 exports.AUTH_FORBIDDEN_SUMMARY = 'Resideo refused access for this developer app. This plugin has stopped until that app is allowed to see the detectors.';
 exports.AUTH_CREDENTIALS_SUMMARY = 'Resideo rejected the API credentials. This plugin has stopped until the Consumer Key and Secret are corrected in Homebridge.';
 exports.CLOUD_OFFLINE_SUMMARY = 'Homebridge has not reached Resideo for 5 minutes. Leak detector state in HomeKit may be stale.';
+exports.CLOUD_DEGRADED_SUMMARY = 'Resideo reports every water leak detector offline. This is most likely a Resideo cloud problem.';
+/** Fewest published detectors for an all-offline report to count as a cloud problem. */
+exports.CLOUD_DEGRADED_MIN_DETECTORS = 2;
+function readingFrom(device, isOfflineHeld) {
+    return {
+        leak: (0, mappers_1.isLeakDetected)(device),
+        offline: !isOfflineHeld && !(0, mappers_1.isDeviceActive)(device),
+        lowBattery: (0, mappers_1.isLowBattery)(device.batteryRemaining),
+    };
+}
 /**
  * Classify an error for the auth-failed page.
  *
@@ -62,7 +72,9 @@ function signalFailureFrom(error) {
 /**
  * House-level PagerDuty signals for the detectors this plugin is publishing.
  *
- * A body that says leak, offline, or low battery pages immediately. A clear
+ * A body that says leak or low battery pages immediately. Offline pages when
+ * settle runs. If every published detector is offline, that is a cloud problem
+ * and pages cloud-offline instead of detector-offline. A clear
  * is written only when every detector still published has a body in the
  * current coverage set. An empty cloud list and a thrown read are not a
  * clear. Shutdown closes the writer and leaves every row as it was.
@@ -76,6 +88,9 @@ class ResideoSignals {
     #offlineTimer = null;
     #cloudRetry = null;
     #isCloudOfflineConfirmed = false;
+    /** Resideo answered, but reported every published detector offline. */
+    #isCloudDegraded = false;
+    #cloudSummary = exports.CLOUD_OFFLINE_SUMMARY;
     #isAuthRejected = false;
     /** This poll saw a stopped sign-in. noteReached must not clear it. */
     #authLatched = false;
@@ -103,46 +118,38 @@ class ResideoSignals {
     /**
      * Record one detector body that just arrived.
      *
-     * Raises at once. Does not clear. A missing battery is not a low battery.
-     * Omitted reachability fields are online, matching isDeviceActive.
+     * Leak and low battery raise at once. Offline waits for settle, which can
+     * tell one offline detector from a cloud that reports all of them offline.
+     * Does not clear. A missing battery is not a low battery. Omitted
+     * reachability fields are online, matching isDeviceActive. isOfflineHeld
+     * means the offline report is still inside the hold and is not believed yet.
      */
-    observe(device) {
+    observe(device, isOfflineHeld = false) {
         if (this.#isClosed || device.deviceID.length === 0) {
             return;
         }
-        const reading = {
-            leak: (0, mappers_1.isLeakDetected)(device),
-            offline: !(0, mappers_1.isDeviceActive)(device),
-            lowBattery: (0, mappers_1.isLowBattery)(device.batteryRemaining),
-        };
+        const reading = readingFrom(device, isOfflineHeld);
         this.#readings.set(device.deviceID, reading);
         this.#covered.add(device.deviceID);
         if (reading.leak) {
             this.#writeLeak(true);
-        }
-        if (reading.offline) {
-            this.#writeOffline(true);
         }
         if (reading.lowBattery) {
             this.#writeBattery(true);
         }
     }
     /**
-     * Raise from a body that arrived while a poll is already in flight.
+     * Store a body that arrived while a poll is already in flight.
      *
-     * A true flag is stored and written. A false flag does not replace a true
-     * one, and this does not mark the detector covered, so the in-flight poll
-     * can still refuse a clear.
+     * A true flag is stored, and leak or low battery is written. A false flag
+     * does not replace a true one, and this does not mark the detector covered,
+     * so the in-flight poll can still refuse a clear.
      */
-    raiseOnly(device) {
+    raiseOnly(device, isOfflineHeld = false) {
         if (this.#isClosed || device.deviceID.length === 0) {
             return;
         }
-        const next = {
-            leak: (0, mappers_1.isLeakDetected)(device),
-            offline: !(0, mappers_1.isDeviceActive)(device),
-            lowBattery: (0, mappers_1.isLowBattery)(device.batteryRemaining),
-        };
+        const next = readingFrom(device, isOfflineHeld);
         const prior = this.#readings.get(device.deviceID);
         const reading = {
             leak: next.leak || prior?.leak === true,
@@ -155,9 +162,6 @@ class ResideoSignals {
         this.#readings.set(device.deviceID, reading);
         if (next.leak) {
             this.#writeLeak(true);
-        }
-        if (next.offline) {
-            this.#writeOffline(true);
         }
         if (next.lowBattery) {
             this.#writeBattery(true);
@@ -200,6 +204,7 @@ class ResideoSignals {
         }
         if (published.size === 0) {
             this.#writeHouse(false, false, false);
+            this.#setCloudDegraded(false);
             return;
         }
         for (const id of published) {
@@ -208,7 +213,7 @@ class ResideoSignals {
             }
         }
         let leak = false;
-        let offline = false;
+        let offlineCount = 0;
         let lowBattery = false;
         for (const id of published) {
             const reading = this.#readings.get(id);
@@ -216,10 +221,13 @@ class ResideoSignals {
                 return;
             }
             leak = leak || reading.leak;
-            offline = offline || reading.offline;
+            offlineCount += reading.offline ? 1 : 0;
             lowBattery = lowBattery || reading.lowBattery;
         }
-        this.#writeHouse(leak, offline, lowBattery);
+        const isEveryDetectorOffline = published.size >= exports.CLOUD_DEGRADED_MIN_DETECTORS
+            && offlineCount === published.size;
+        this.#writeHouse(leak, offlineCount > 0 && !isEveryDetectorOffline, lowBattery);
+        this.#setCloudDegraded(isEveryDetectorOffline);
     }
     /**
      * Drop one detector that left HomeKit and recompute.
@@ -335,11 +343,26 @@ class ResideoSignals {
                 : exports.AUTH_REJECTED_SUMMARY;
         this.#writer.write(exports.SIGNAL_AUTH_FAILED, { active, severity: 'error', summary });
     }
+    #setCloudDegraded(isDegraded) {
+        if (isDegraded === this.#isCloudDegraded) {
+            return;
+        }
+        this.#isCloudDegraded = isDegraded;
+        this.#writeCloud();
+    }
+    /**
+     * One cloud-offline row covers both causes. Resideo not answering wins the
+     * summary. A clear repeats the sentence the page used.
+     */
     #writeCloud() {
+        const active = (this.#isCloudOfflineConfirmed || this.#isCloudDegraded) && !this.#isAuthRejected;
+        if (active) {
+            this.#cloudSummary = this.#isCloudOfflineConfirmed ? exports.CLOUD_OFFLINE_SUMMARY : exports.CLOUD_DEGRADED_SUMMARY;
+        }
         this.#writer.write(exports.SIGNAL_CLOUD_OFFLINE, {
-            active: this.#isCloudOfflineConfirmed && !this.#isAuthRejected,
+            active,
             severity: 'error',
-            summary: exports.CLOUD_OFFLINE_SUMMARY,
+            summary: this.#cloudSummary,
         });
     }
     #armOfflineGrace() {

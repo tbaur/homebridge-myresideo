@@ -34,6 +34,7 @@ import {
   ForbiddenError,
   RefreshTokenInvalidError,
 } from './errors'
+import { DeviceHold } from './device-hold'
 import {
   PAGERDUTY_STARTUP_LOG,
   createResideoSignals,
@@ -41,11 +42,13 @@ import {
 } from './resideo-signals'
 import type { ResideoSignals, SignInFailure } from './resideo-signals'
 import {
+  DEFAULT_OFFLINE_HOLD_MIN,
   DEFAULT_REFRESH_RATE_SEC,
   EMPTY_DISCOVERY_QUIET_AFTER_ATTEMPTS,
   INITIAL_DISCOVERY_RETRY_MS,
   MAX_DIAGNOSTICS_INTERVAL_SEC,
   MAX_DISCOVERY_RETRY_MS,
+  MAX_OFFLINE_HOLD_MIN,
   MAX_REFRESH_RATE_SEC,
   MIN_DIAGNOSTICS_INTERVAL_SEC,
   MIN_REFRESH_RATE_SEC,
@@ -166,6 +169,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
    * That poll must not start the outage grace when it finishes empty.
    */
   private signalsReachedDuringPoll = false
+  /** Keeps the last trusted state while Resideo briefly reports a detector unreachable. */
+  private readonly deviceHold: DeviceHold
 
   constructor(
     public readonly log: Logging,
@@ -175,6 +180,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     this.Service = api.hap.Service
     this.Characteristic = api.hap.Characteristic
     this.config = config
+    this.deviceHold = new DeviceHold(this.offlineHoldMs)
 
     const { errors, warnings } = validateConfig(config)
     for (const warning of warnings) {
@@ -277,6 +283,17 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       )
     }
     this.accessories.push(accessory)
+    // The cache holds the last state this plugin showed, so a placeholder
+    // record right after a restart can be held against it.
+    this.deviceHold.seed(accessory.context.device as WaterLeakDetector | undefined)
+  }
+
+  private get offlineHoldMs(): number {
+    const configured = this.config.options?.offlineHoldMinutes
+    const minutes = typeof configured === 'number' && Number.isFinite(configured)
+      ? configured
+      : DEFAULT_OFFLINE_HOLD_MIN
+    return Math.min(Math.max(minutes, 0), MAX_OFFLINE_HOLD_MIN) * 60_000
   }
 
   private get refreshRateMs(): number {
@@ -303,7 +320,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
       if (this.stopped) {
         return
       }
-      const detectors: Array<{ device: WaterLeakDetector, locationId: number }> = []
+      const detectors: Array<{ device: WaterLeakDetector, locationId: number, isOfflineHeld: boolean }> = []
       for (const location of locations) {
         for (const device of location.devices ?? []) {
           if (!isWaterLeakDetector(device)) {
@@ -319,7 +336,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
             )
             continue
           }
-          detectors.push({ device, locationId: location.locationID })
+          detectors.push({ ...this.deviceHold.apply(device), locationId: location.locationID })
         }
       }
 
@@ -698,6 +715,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         this.handlers.delete(deviceID)
         this.locationByDevice.delete(deviceID)
         this.pendingRemovalCounts.delete(deviceID)
+        this.deviceHold.release(deviceID)
         // Forget the boot-summary marker so a detector that later returns to the
         // account is reported again rather than being silently re-added.
         this.bootSummaryLogged.delete(deviceID)
@@ -805,12 +823,13 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
         // single successful-attempt latency that feeds the diagnostics p50/p95.
         const startedAt = Date.now()
         try {
-          const device = await this.client.getWaterLeakDetector(deviceID, locationId)
+          const body = await this.client.getWaterLeakDetector(deviceID, locationId)
           if (this.stopped) {
             return
           }
+          const { device, isOfflineHeld } = this.deviceHold.apply(body)
           handler.updateStatus(device, Date.now() - startedAt)
-          this.signals?.observe(device)
+          this.signals?.observe(device, isOfflineHeld)
           sawBody = true
           ok++
         } catch (err) {
@@ -853,21 +872,23 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
    * while a poll is running can raise, and cannot replace a true reading or
    * settle a clear over that poll.
    */
-  private recordDiscoverySignals(detectors: ReadonlyArray<{ device: WaterLeakDetector }>): void {
+  private recordDiscoverySignals(
+    detectors: ReadonlyArray<{ device: WaterLeakDetector, isOfflineHeld: boolean }>,
+  ): void {
     if (!this.signals) {
       return
     }
     if (this.isPolling) {
-      for (const { device } of detectors) {
-        this.signals.raiseOnly(device)
+      for (const { device, isOfflineHeld } of detectors) {
+        this.signals.raiseOnly(device, isOfflineHeld)
       }
       this.signals.noteCloudReached()
       this.signalsReachedDuringPoll = true
       return
     }
     this.signals.beginPoll(false)
-    for (const { device } of detectors) {
-      this.signals.observe(device)
+    for (const { device, isOfflineHeld } of detectors) {
+      this.signals.observe(device, isOfflineHeld)
     }
     this.signals.settle(this.publishedDetectorIds())
     this.signals.noteCloudReached()
