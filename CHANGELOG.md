@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. This file is maintained automatically by [release-please](https://github.com/googleapis/release-please) based on [Conventional Commits](https://www.conventionalcommits.org).
 
+## [2.1.1](https://github.com/tbaur/homebridge-myresideo/compare/v2.1.0...v2.1.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* hold brief offline reports and page cloud-wide drops once ([#121](https://github.com/tbaur/homebridge-myresideo/issues/121)) ([6be9da2](https://github.com/tbaur/homebridge-myresideo/commit/6be9da271da317a83bae05d5d064485d7e523972))
+
 ## [2.1.0](https://github.com/tbaur/homebridge-myresideo/compare/v2.0.2...v2.1.0) (2026-10-25)
 
 
