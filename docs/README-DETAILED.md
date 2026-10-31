@@ -60,6 +60,7 @@ Install and a short options table live in the [README](../README.md). This page 
 | `credentials.accessToken` | | OAuth2 access token (set when linking your account) |
 | `options.refreshRate` | | Seconds between status polls. Default 120, minimum 30, maximum 86400. Out-of-range values are clamped. A non-numeric value falls back to the default. |
 | `options.freezeThresholdCelsius` | | Default freeze threshold in °C, between −40 and 40 (values outside that range are ignored). Leave unset to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence. |
+| `options.offlineHoldMinutes` | | Minutes a detector must stay unreachable before HomeKit and PagerDuty show it offline. Default 10. Allowed range 0–60; out-of-range values are clamped. 0 turns the hold off. See [Offline hold](#offline-hold). |
 | `options.diagnosticsInterval` | | Seconds between health-report log lines. Default 0 (off). Values 1–29 are clamped up to 30. Maximum is 86400 (24h). |
 | `options.structuredLogs` | | When diagnostics are enabled, also emit a machine-readable JSON line next to the human summary. Default false. |
 | `options.pagerdutySignals` | | Write this plugin's alert conditions to homebridge-pagerduty. Off until turned on. See [PagerDuty](#pagerduty). Needs Node 22.13 or later. |
@@ -95,6 +96,14 @@ A freeze contact sensor trips when temperature is at or below the configured thr
 Each poll logs only what changed (leak, online/offline, low battery, freeze, alarms) once per transition. Routine poll misses stay at debug.
 
 When `lastCheckin` advances, the plugin logs a one-line summary prefixed with that detector's name: current readings and poll latency.
+
+### Offline hold
+
+During a Resideo cloud incident, the API can answer normally but report detectors as unreachable with a battery of 0%, and drop their readings and alarms. The detectors are fine, and the next poll or two returns the real record. `offlineHoldMinutes` (default 10) sets how long an unreachable report must last before the plugin believes it.
+
+During the hold, HomeKit keeps the detector's last trusted state: online, battery, temperature, humidity and alarms. Leak state is never held, so a leak still shows and pages at once. The log does not report the detector offline, and PagerDuty does not page.
+
+If the report lasts past the hold, the detector shows offline with no battery reading, because the 0% in that record is not a real reading. The hold also works across a restart: the plugin holds against the state it last saved in the Homebridge accessory cache.
 
 ## Discovery and stale removal
 
@@ -140,17 +149,17 @@ Each condition below then opens a PagerDuty alert while it is present, and resol
 | `detector-offline` | error | A water leak detector this plugin publishes is offline |
 | `low-battery` | warning | A water leak detector this plugin publishes reports a battery at or below 15% |
 | `auth-failed` | error | Sign-in has stopped and will not be retried |
-| `cloud-offline` | error | No detector body for 5 minutes |
+| `cloud-offline` | error | No detector body for 5 minutes, or Resideo reports every detector offline |
 
 How the signals behave:
 
 - `leak` follows `waterPresent` on a detector body Resideo just returned. The summary is "A water leak detector is wet."
-- `detector-offline` follows a body that says the detector is not alive, is offline, or has not checked in. A thrown request is not offline. Omitted reachability fields are online. The summary is "A water leak detector is offline."
-- `low-battery` follows a reported battery at or below 15%. A missing battery stays clear. The summary is "A water leak detector battery is low."
-- A condition pages as soon as one body says so. It clears only when every detector still in HomeKit was part of that read and none of them still have it. A detector omitted from the list, including one waiting out stale-removal, blocks the clear.
+- `detector-offline` follows a body that says the detector is not alive, is offline, or has not checked in, once that report has lasted past the [offline hold](#offline-hold). A thrown request is not offline. Omitted reachability fields are online. If two or more detectors are published and every one of them is offline, that is treated as a Resideo problem: `cloud-offline` pages instead, and `detector-offline` stays clear. The summary is "A water leak detector is offline."
+- `low-battery` follows a reported battery at or below 15%. A missing battery stays clear. The battery on an unreachable record is not a reading, so it stays clear too. The summary is "A water leak detector battery is low."
+- `leak` and `low-battery` page as soon as one body says so. `detector-offline` and the all-offline case of `cloud-offline` are decided at the end of each poll. It clears only when every detector still in HomeKit was part of that read and none of them still have it. A detector omitted from the list, including one waiting out stale-removal, blocks the clear.
 - An empty device list does not clear those three signals and does not count as reaching Resideo. A detector restored from the Homebridge cache does not page until a new body arrives.
 - `auth-failed` turns on when Resideo rejects the account link, refuses this developer app (HTTP 403), or rejects the Consumer Key or Secret. Each case uses its own sentence. A 404, a 429, a network timeout, an open circuit breaker, and a 401 that the client is about to refresh do not turn this on. The diagnostics cooldown of the same name does not turn this on. A locations list does not clear it while the device poll that follows is still running. That poll clears it only when the poll itself does not see a stopped sign-in.
-- `cloud-offline` turns on only after 5 minutes with no detector body, counted from launch and again from the start of a later outage. Later failures do not extend a timer that is already running. It stays off while `auth-failed` is on. If the signal file cannot take the write when the five minutes elapse, the plugin tries again while the outage continues. The summary is "Homebridge has not reached Resideo for 5 minutes. Leak detector state in HomeKit may be stale."
+- `cloud-offline` turns on only after 5 minutes with no detector body, counted from launch and again from the start of a later outage. Later failures do not extend a timer that is already running. It stays off while `auth-failed` is on. If the signal file cannot take the write when the five minutes elapse, the plugin tries again while the outage continues. The summary is "Homebridge has not reached Resideo for 5 minutes. Leak detector state in HomeKit may be stale." When Resideo answers but reports every detector offline past the hold, the summary is "Resideo reports every water leak detector offline. This is most likely a Resideo cloud problem."
 - At startup the plugin logs one line, `homebridge-pagerduty support is enabled (leak, detector-offline, low-battery, auth-failed, cloud-offline)`, before the first request. The line is logged once, and it is not logged when the setting is off or when startup validation failed.
 - Shutdown closes the store and does not clear a signal.
 - The store needs `node:sqlite`, which Node provides from 22.13. On an older Node the plugin logs one warning and keeps running without signals. Nothing is written until the setting is on.

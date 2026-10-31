@@ -10,7 +10,9 @@
  */
 
 import {
+  DEFAULT_OFFLINE_HOLD_MIN,
   MAX_DIAGNOSTICS_INTERVAL_SEC,
+  MAX_OFFLINE_HOLD_MIN,
   MAX_REFRESH_RATE_SEC,
   MIN_DIAGNOSTICS_INTERVAL_SEC,
   MIN_REFRESH_RATE_SEC,
@@ -118,7 +120,19 @@ export function validateConfig(config: ResideoPlatformConfig | undefined): Confi
 
   const options = config?.options
   if (options) {
-    const { refreshRate, freezeThresholdCelsius, diagnosticsInterval, devices } = options
+    const { refreshRate, freezeThresholdCelsius, diagnosticsInterval, offlineHoldMinutes, devices } = options
+
+    if (offlineHoldMinutes !== undefined) {
+      if (typeof offlineHoldMinutes !== 'number' || !Number.isFinite(offlineHoldMinutes)) {
+        warnings.push(
+          `options.offlineHoldMinutes must be a finite number; using the default of ${DEFAULT_OFFLINE_HOLD_MIN}.`,
+        )
+      } else if (offlineHoldMinutes < 0 || offlineHoldMinutes > MAX_OFFLINE_HOLD_MIN) {
+        warnings.push(
+          `options.offlineHoldMinutes ${offlineHoldMinutes} is outside 0–${MAX_OFFLINE_HOLD_MIN}; it will be clamped.`,
+        )
+      }
+    }
 
     if (refreshRate !== undefined) {
       if (typeof refreshRate !== 'number' || !Number.isFinite(refreshRate)) {

@@ -60,6 +60,8 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
      * That poll must not start the outage grace when it finishes empty.
      */
     private signalsReachedDuringPoll;
+    /** Keeps the last trusted state while Resideo briefly reports a detector unreachable. */
+    private readonly deviceHold;
     constructor(log: Logging, config: ResideoPlatformConfig, api: API);
     /**
      * Record a device state transition (leak/offline/battery/freeze) for the
@@ -71,6 +73,7 @@ export default class ResideoPlatform implements DynamicPlatformPlugin {
     recordStateChange(): void;
     /** Restore an accessory from the Homebridge cache. */
     configureAccessory(accessory: PlatformAccessory): void;
+    private get offlineHoldMs();
     private get refreshRateMs();
     private discoverDevices;
     /**

@@ -101,6 +101,14 @@ export declare const MIN_TOKEN_LIFETIME_MS = 30000;
 /** Battery percentage at or below which HomeKit reports "low battery". */
 export declare const LOW_BATTERY_THRESHOLD = 15;
 /**
+ * How long a detector must stay unreachable before HomeKit and PagerDuty see it
+ * offline. Resideo's cloud sometimes returns a placeholder record (unreachable,
+ * battery 0) for a few minutes while the detector itself is fine.
+ */
+export declare const DEFAULT_OFFLINE_HOLD_MIN = 10;
+/** Upper bound on `offlineHoldMinutes`, so a real outage is never hidden for long. */
+export declare const MAX_OFFLINE_HOLD_MIN = 60;
+/**
  * Minimum allowed diagnostics interval (seconds). Below this the health report
  * would spam the log without adding signal; a sub-minimum value is clamped up.
  */

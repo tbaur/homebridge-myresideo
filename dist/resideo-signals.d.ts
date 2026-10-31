@@ -30,6 +30,9 @@ export declare const AUTH_REJECTED_SUMMARY = "Resideo rejected the account link.
 export declare const AUTH_FORBIDDEN_SUMMARY = "Resideo refused access for this developer app. This plugin has stopped until that app is allowed to see the detectors.";
 export declare const AUTH_CREDENTIALS_SUMMARY = "Resideo rejected the API credentials. This plugin has stopped until the Consumer Key and Secret are corrected in Homebridge.";
 export declare const CLOUD_OFFLINE_SUMMARY = "Homebridge has not reached Resideo for 5 minutes. Leak detector state in HomeKit may be stale.";
+export declare const CLOUD_DEGRADED_SUMMARY = "Resideo reports every water leak detector offline. This is most likely a Resideo cloud problem.";
+/** Fewest published detectors for an all-offline report to count as a cloud problem. */
+export declare const CLOUD_DEGRADED_MIN_DETECTORS = 2;
 /** Why sign-in stopped. The summary depends on it. The signal name does not. */
 export type SignInFailure = 'rejected' | 'forbidden' | 'credentials';
 /** The subset of the store writer this class uses. */
@@ -49,7 +52,9 @@ export declare function signalFailureFrom(error: unknown): SignInFailure | undef
 /**
  * House-level PagerDuty signals for the detectors this plugin is publishing.
  *
- * A body that says leak, offline, or low battery pages immediately. A clear
+ * A body that says leak or low battery pages immediately. Offline pages when
+ * settle runs. If every published detector is offline, that is a cloud problem
+ * and pages cloud-offline instead of detector-offline. A clear
  * is written only when every detector still published has a body in the
  * current coverage set. An empty cloud list and a thrown read are not a
  * clear. Shutdown closes the writer and leaves every row as it was.
@@ -67,18 +72,21 @@ export declare class ResideoSignals {
     /**
      * Record one detector body that just arrived.
      *
-     * Raises at once. Does not clear. A missing battery is not a low battery.
-     * Omitted reachability fields are online, matching isDeviceActive.
+     * Leak and low battery raise at once. Offline waits for settle, which can
+     * tell one offline detector from a cloud that reports all of them offline.
+     * Does not clear. A missing battery is not a low battery. Omitted
+     * reachability fields are online, matching isDeviceActive. isOfflineHeld
+     * means the offline report is still inside the hold and is not believed yet.
      */
-    observe(device: WaterLeakDetector): void;
+    observe(device: WaterLeakDetector, isOfflineHeld?: boolean): void;
     /**
-     * Raise from a body that arrived while a poll is already in flight.
+     * Store a body that arrived while a poll is already in flight.
      *
-     * A true flag is stored and written. A false flag does not replace a true
-     * one, and this does not mark the detector covered, so the in-flight poll
-     * can still refuse a clear.
+     * A true flag is stored, and leak or low battery is written. A false flag
+     * does not replace a true one, and this does not mark the detector covered,
+     * so the in-flight poll can still refuse a clear.
      */
-    raiseOnly(device: WaterLeakDetector): void;
+    raiseOnly(device: WaterLeakDetector, isOfflineHeld?: boolean): void;
     /**
      * Start a poll.
      *

@@ -388,6 +388,7 @@ function redactConfig(config: ResideoPlatformConfig): Record<string, unknown> {
     structuredLogs: options?.structuredLogs ?? false,
     pagerdutySignals: options?.pagerdutySignals === true,
     freezeThresholdCelsius: options?.freezeThresholdCelsius ?? null,
+    offlineHoldMinutes: options?.offlineHoldMinutes ?? null,
     devices: Array.isArray(options?.devices) ? options.devices.length : 0,
   }
 }

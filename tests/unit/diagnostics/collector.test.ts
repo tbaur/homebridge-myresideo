@@ -332,6 +332,7 @@ describe('DiagnosticsCollector', () => {
         structuredLogs: true,
         pagerdutySignals: false,
         freezeThresholdCelsius: 2,
+        offlineHoldMinutes: null,
         devices: 2,
       })
 

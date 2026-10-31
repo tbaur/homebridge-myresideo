@@ -60,6 +60,17 @@
             "maximum": 40,
             "description": "Optional. Temperature at or below which the optional freeze sensor trips. Must be between -40 and 40 °C; values outside that range are ignored. Leave blank to use each device's own configured low-temperature limit (falling back to 4 °C if the device reports none). A per-device override takes precedence."
           },
+          "offlineHoldMinutes": {
+            "title": "Offline Hold (minutes)",
+            "type": "integer",
+            "default": 10,
+            "minimum": 0,
+            "maximum": 60,
+            "x-schema-form": {
+              "type": "number"
+            },
+            "description": "How long a detector must stay unreachable before HomeKit and PagerDuty show it offline. Resideo's cloud sometimes reports every detector offline for a few minutes when nothing is wrong. During the hold the last known state is kept, and leaks still report at once. 0 turns the hold off."
+          },
           "diagnosticsInterval": {
             "title": "Diagnostics Interval (seconds)",
             "type": "integer",
@@ -137,6 +148,10 @@
           "type": "number"
         },
         "options.freezeThresholdCelsius",
+        {
+          "key": "options.offlineHoldMinutes",
+          "type": "number"
+        },
         {
           "key": "options.diagnosticsInterval",
           "type": "number"

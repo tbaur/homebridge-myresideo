@@ -57,6 +57,21 @@ describe('validateConfig', () => {
     expect(result.errors).toHaveLength(3)
   })
 
+  it.each([
+    ['negative', -1, 'outside'],
+    ['above the maximum', 61, 'outside'],
+    ['not a number', 'ten', 'finite number'],
+  ])('warns when offlineHoldMinutes is %s', (_label, value, message) => {
+    const result = validateConfig(baseConfig({ options: { offlineHoldMinutes: value as number } }))
+    expect(result.errors).toHaveLength(0)
+    expect(result.warnings.some(w => w.includes('offlineHoldMinutes') && w.includes(message))).toBe(true)
+  })
+
+  it.each([0, 10, 60])('accepts offlineHoldMinutes %s', (value) => {
+    const result = validateConfig(baseConfig({ options: { offlineHoldMinutes: value } }))
+    expect(result.warnings.some(w => w.includes('offlineHoldMinutes'))).toBe(false)
+  })
+
   it('warns when refreshRate is below the minimum', () => {
     const result = validateConfig(baseConfig({ options: { refreshRate: 5 } }))
     expect(result.errors).toHaveLength(0)
