@@ -65,8 +65,7 @@ Example: `feat: add temperature sensor for leak detectors`
 2. Ensure CI passes (tests, linting)
 3. Request review from maintainers
 
-> `CHANGELOG.md` is generated automatically by release-please from your
-> Conventional Commit / PR titles — do not edit it by hand. See [RELEASING.md](RELEASING.md).
+> `CHANGELOG.md` is generated automatically by release-please from your Conventional Commit / PR titles — do not edit it by hand. See [RELEASING.md](RELEASING.md).
 
 ### PR Checklist
 
